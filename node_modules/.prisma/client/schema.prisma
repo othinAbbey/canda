@@ -1,0 +1,80 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// prisma/models/User.model.prisma
+model User {
+  id         Int      @id @default(autoincrement())
+  firstName  String
+  lastName   String
+  email      String   @unique
+  password   String
+  // phone      String ? 
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  location   Location? @relation(fields: [locationId], references: [id])
+  locationId Int?
+}
+
+// prisma/models/Material.model.prisma
+model Material {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  Rate        Rate[]
+  location    Location? @relation(fields: [locationId], references: [id])
+  locationId  Int?
+}
+
+// prisma/models/Location.model.prisma
+model Location {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  Rate        Rate[]
+  users       User[]
+  materials   Material[]
+  suppliers   Supplier[]
+}
+
+
+// prisma/models/Supplier.model.prisma
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String
+  contact   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  Rate      Rate[]
+  location  Location? @relation(fields: [locationId], references: [id])
+  locationId Int?
+}
+
+
+// prisma/models/Rate.model.prisma
+model Rate {
+  id         Int      @id @default(autoincrement())
+  price      Float
+  locationId Int
+  materialId Int
+  supplierId Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Foreign keys
+  location Location @relation(fields: [locationId], references: [id])
+  material Material @relation(fields: [materialId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+}

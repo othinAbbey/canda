@@ -4,6 +4,7 @@
   "description": "C and A contractors website",
   "main": "index.js",
   "scripts": {
+    "build": "npm install",
     "start": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

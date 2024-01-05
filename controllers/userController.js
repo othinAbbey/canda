@@ -1,6 +1,8 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const bcrypt = require('bcrypt');
+// const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
+
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 const saltRounds = 10;

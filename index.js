@@ -8,7 +8,9 @@ app.use(express.json());
 
 // Import Routes
 const userRoutes = require('./routes/userRoutes');
+const materialRoutes = require('./routes/materialRoutes');
 app.use('/user', userRoutes);
+app.use('/materials', materialRoutes);
 
 app.listen(port, () => {
  

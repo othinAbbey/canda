@@ -24,8 +24,8 @@ async function signUp(req , res){
         if(userExists){
             return res.status(400).json({message: "User already exists, Kindly Login"});
         }
-        const {firstName, lastName, email, password} = req.body;
-        if (!email || !password || !firstName || !lastName) {
+        const {firstName, lastName, email, password, phone} = req.body;
+        if (!email || !password || !firstName || !lastName || !phone) {
             return res.status(400).json({ message: "All fields are required" });
            
         }
@@ -35,16 +35,17 @@ async function signUp(req , res){
                 firstName: firstName,
                 lastName: lastName,
                 email: email,
+                phone: phone,
                 password: hashedPassword,
                 // region: "region",
                 // accountType: "accountType",
-                // phone: phone
             }
         })
 
         
         res.json({message: "User created successfully , proceed to login"});
-        console.log("User created successfully")
+
+        
     }
     catch(error){
         console.log(error);

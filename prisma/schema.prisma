@@ -18,36 +18,27 @@ model User {
   lastName   String
   email      String    @unique
   password   String
-<<<<<<< HEAD
   // phone      String ? 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-=======
   phone      String ? 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
->>>>>>> 5fc3458375358663f3debc70751b0b1bec279d06
+ 
   location   Location? @relation(fields: [locationId], references: [id])
   locationId Int?
 }
 
 // prisma/models/Material.model.prisma
 model Material {
-<<<<<<< HEAD
   id          Int       @id @default(autoincrement())
   name        String
   description String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-  Rate        Rate[]
-=======
-  id          Int      @id @default(autoincrement())
+ 
+  
   material    String   @unique
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+
   rate        Rate[]
->>>>>>> 5fc3458375358663f3debc70751b0b1bec279d06
   location    Location? @relation(fields: [locationId], references: [id])
   locationId  Int?
 }
@@ -117,7 +108,7 @@ model Dimensions {
 // structures.model.prisma
 model Structures {
   id                  Int                   @id @default(autoincrement())
-  name                String
+  name                String                @unique
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   rates               Rate[]
@@ -130,7 +121,7 @@ model Structures {
 // materials.model.prisma
 model Mat {
   id                  Int                   @id @default(autoincrement())
-  name                String
+  name                String                @unique
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   dimensions          Dimensions?           @relation(fields: [dimensionsId], references: [id])

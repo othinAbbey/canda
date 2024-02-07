@@ -13,34 +13,33 @@ datasource db {
 
 // prisma/models/User.model.prisma
 model User {
-  id         Int       @id @default(autoincrement())
-  firstName  String
-  lastName   String
-  email      String    @unique
-  password   String
+  id        Int      @id @default(autoincrement())
+  firstName String
+  lastName  String
+  email     String   @unique
+  password  String
   // phone      String ? 
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  phone      String ? 
- 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  phone     String?
+
   location   Location? @relation(fields: [locationId], references: [id])
   locationId Int?
 }
 
 // prisma/models/Material.model.prisma
 model Material {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   name        String
   description String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
- 
-  
-  material    String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  rate        Rate[]
-  location    Location? @relation(fields: [locationId], references: [id])
-  locationId  Int?
+  material String @unique
+
+  rate       Rate[]
+  location   Location? @relation(fields: [locationId], references: [id])
+  locationId Int?
 }
 
 // prisma/models/Location.model.prisma
@@ -90,19 +89,19 @@ model Rate {
   structuresId Int?
 }
 
-
 model Dimensions {
-  id         Int         @id @default(autoincrement())
+  id         Int          @id @default(autoincrement())
   length     Float
   width      Float
   height     Float
   volume     Float
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
   Rate       Rate[]
-  location   Location?   @relation(fields: [locationId], references: [id])
+  location   Location?    @relation(fields: [locationId], references: [id])
   locationId Int?
   Materials  Mat[]
+  Structures Structures[]
 }
 
 // structures.model.prisma
@@ -114,7 +113,9 @@ model Structures {
   rates               Rate[]
   location            Location?             @relation(fields: [locationId], references: [id])
   locationId          Int?
-  materials           Mat[]           @relation("StructuresMaterials")
+  dimensionsId        Int? // Add this line
+  dimensions          Dimensions?           @relation(fields: [dimensionsId], references: [id])
+  materials           Mat[]                 @relation("StructuresMaterials")
   StructuresMaterials StructuresMaterials[]
 }
 
@@ -136,7 +137,7 @@ model StructuresMaterials {
   materialId  Int
 
   structure Structures @relation(fields: [structureId], references: [id])
-  material  Mat  @relation(fields: [materialId], references: [id])
+  material  Mat        @relation(fields: [materialId], references: [id])
 
   @@id([structureId, materialId])
 }

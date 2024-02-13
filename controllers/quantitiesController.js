@@ -85,7 +85,35 @@ async function getQuantities(req, res) {
   }
 }
 
+async function getMotor(req, res){
+  try{
+    const { structure, brick, length, height, width } = req.body;
+    const [lengthMeters, heightMeters, widthMeters] = [
+      length,
+      height,
+      width,
+    ].map((value) => value / 1000);
+
+    const [brickLengthMeters, brickWidthMeters, brickHeightMeters] = [
+      dimensions.length,
+      dimensions.width,
+      dimensions.height,
+    ].map((value) => value / 1000);
+
+    const structureVolume = lengthMeters * widthMeters * heightMeters;
+    const brickVolume = brickLengthMeters * brickWidthMeters * brickHeightMeters;
+    const motorVolume = structureVolume - brickVolume;
+    console.log(`The Volume of motor in ${structureVolume} cm of ${structure} is:`, motorVolume)
+
+  }catch(error){
+    console.log("Error:", error)
+    res.status(500).json({ message: "Internal server error" });
+}
+    
+  }
+
+
 module.exports = {
-  // calculateQuantity,
+  getMotor,
   getQuantities,
 };

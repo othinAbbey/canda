@@ -78,7 +78,6 @@ model Rate {
   supplierId Int
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-
   // Foreign keys
   location     Location    @relation(fields: [locationId], references: [id])
   material     Material    @relation(fields: [materialId], references: [id])

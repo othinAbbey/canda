@@ -11,10 +11,12 @@ app.use(express.json());
 const userRoutes = require('./routes/userRoutes');
 const quantitiesRoutes = require('./routes/quantitiesRoutes');
 const materialRoutes = require('./routes/materialRoutes');
+const supplierRoutes = require('./routes/supplierRoutes')
 
 app.use('/user', userRoutes);
 app.use('/quantities', quantitiesRoutes);
 app.use('/materials', materialRoutes);
+app.use('/supplier', supplierRoutes)
 
 app.listen(port, () => {
     console.log(`Server is running at http://localhost:${port}/`);

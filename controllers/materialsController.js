@@ -45,6 +45,21 @@ async function addMat(req, res){
     }
 }
 
+//get all materials from the database
+
+async function getAllMaterials(req, res) {
+    if(req.method !== 'GET'){
+        return res.status(405).end();
+    }
+    try{
+        const materials = await prisma.material.findMany();
+        res.json(materials) 
+     } catch(error){
+        console.log(error);
+        res.status(500).json({message: "Failed to get materials"})
+     }
+}
 module.exports = {
-    addMat
+    addMat,
+    getAllMaterials
 }

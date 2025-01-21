@@ -59,7 +59,35 @@ async function getAllMaterials(req, res) {
         res.status(500).json({message: "Failed to get materials"})
      }
 }
+
+
+async function getAllProducts(req,res){
+    if(req.method !== "GET"){
+        return res.status(405).end();
+    }
+    try{
+        const products = await prisma.product.findMany({
+            include: {
+                supplier: true,
+                // locationName: true,
+                // parish: true,
+                // material: true,
+                // units: true,
+                // rateDetails:{
+                //     include:{
+                //     // material:true
+                //     }
+                // }
+            }
+        });
+        res.json(products)
+    } catch(error){
+        console.log(error)
+        return res.status(500).json({message:"Failed to get products"})
+    }
+}
 module.exports = {
     addMat,
-    getAllMaterials
+    getAllMaterials,
+    getAllProducts
 }

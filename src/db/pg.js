@@ -17,7 +17,13 @@ export async function createPgDb(connectionString, { max = 10 } = {}) {
   pg.types.setTypeParser(1700, Number);                           // numeric
   pg.types.setTypeParser(1082, (v) => v);                         // date -> "YYYY-MM-DD"
   pg.types.setTypeParser(1184, (v) => new Date(v).toISOString()); // timestamptz -> ISO string
-  const pool = new pg.Pool({ connectionString, max });
+  const pool = new pg.Pool({
+  connectionString,
+  max,
+  ssl: process.env.NODE_ENV === "production"
+    ? { rejectUnauthorized: true }
+    : false,
+  });
   return {
     ...api(pool),
     async tx(fn) {

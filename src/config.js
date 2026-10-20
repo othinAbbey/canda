@@ -6,16 +6,16 @@ const list = (v, d) => (v === undefined ? d : String(v).split(",").map((s) => s.
 export function loadConfig(env = process.env) {
   return {
     databaseUrl: env.DATABASE_URL || "",
-    port: num(env.PORT, 8100),
-    host: env.HOST || "127.0.0.1",
-    corsOrigins: list(env.CORS_ORIGINS, ["http://localhost:3000"]),
+    port: num(env.PM_PORT, 8100),
+    host: env.PM_HOST || "0.0.0.0",
+    corsOrigins: list(env.PM_CORS_ORIGINS),
     tokenSecret: env.TOKEN_SECRET || "",
-    tokenHours: num(env.TOKEN_HOURS, 12),
-    allowSignup: bool(env.ALLOW_SIGNUP, true),
-    resetMinutes: num(env.RESET_MINUTES, 60),
-    maxUploadMb: num(env.MAX_UPLOAD_MB, 25),
-    enforcePlanLimits: bool(env.ENFORCE_PLAN_LIMITS, false),
-    boq: { url: (env.BOQ_SERVICE_URL || "http://127.0.0.1:8000").replace(/\/+$/, ""), key: env.BOQ_SERVICE_KEY || "" },
+    tokenHours: num(env.PM_TOKEN_HOURS, 12),
+    allowSignup: bool(env.PM_ALLOW_SIGNUP, true),
+    resetMinutes: num(env.PM_RESET_MINUTES, 60),
+    maxUploadMb: num(env.PM_MAX_UPLOAD_MB, 25),
+    enforcePlanLimits: bool(env.PM_ENFORCE_PLAN_LIMITS, false),
+    boq: { url: (env.BOQ_SERVICE_URL).replace(/\/+$/, ""), key: env.BOQ_SERVICE_KEY || "" },
     seed: bool(env.SEED, true),
   };
 }

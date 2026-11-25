@@ -1,4 +1,6 @@
 import accountRoutes from "./accounts.js";
+import assistantRoutes from "./assistant.js";
+import chatRoutes from "./chat.js";
 import auditRoutes from "./audit.js";
 import billingRoutes from "./billing.js";
 import boqRoutes from "./boq.js";
@@ -18,5 +20,5 @@ import tenderRoutes from "./tenders.js";
 export function registerRoutes(router, svc, ctx) {
   router.get("/api/health", { public: true }, () => ({ ok: true, setup_required: false }));
   // Order matters: tenderRoutes must come before resourceRoutes so "/api/tenders/search" is not read as a tender id.
-  for (const register of [accountRoutes, roleRoutes, tenderRoutes, scheduleRoutes, formRoutes, resourceRoutes, summaryRoutes, sourcingRoutes, proposalRoutes, fileRoutes, boqRoutes, billingRoutes, auditRoutes, contactRoutes, marketRoutes]) register(router, svc, ctx);
+  for (const register of [accountRoutes, roleRoutes, tenderRoutes, scheduleRoutes, formRoutes, resourceRoutes, summaryRoutes, sourcingRoutes, proposalRoutes, fileRoutes, boqRoutes, billingRoutes, auditRoutes, contactRoutes, marketRoutes, assistantRoutes, chatRoutes]) register(router, svc, ctx);
 }

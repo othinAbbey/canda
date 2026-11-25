@@ -87,7 +87,9 @@ describe("company tasks: progress, requirements and oversight", () => {
     assert.equal(r1.status, 200); assert.equal(r1.body.checklist[0].done_by_email, "pm@x.com"); assert.equal(r1.body.checklist[0].note, "Collected from registry");
     await t.call("PATCH", `/api/tender_requirements/${b.id}`, { status: "done" }, pm);
     const r3 = await t.call("PATCH", `/api/tender_requirements/${c.id}`, { status: "na" }, pm);
-    assert.deepEqual(r3.body.requirements, { total: 4, done: 2, na: 1 }); assert.equal(r3.body.progress, 50);
+    assert.equal(r3.body.checklist.find((x) => x.id === c.id).status, "na");
+    const after = (await t.call("GET", `/api/tender_tasks/${task.id}`, null, pm)).body;
+    assert.deepEqual(after.requirements, { total: 4, done: 2, na: 1 }); assert.equal(after.progress, 50);
     assert.equal((await t.call("PATCH", `/api/tender_requirements/${a.id}`, { status: "maybe" }, pm)).status, 400);
   });
 
@@ -135,11 +137,14 @@ describe("company tasks: progress, requirements and oversight", () => {
     assert.equal((await t.call("DELETE", `/api/tender_requirements/${req.id}`, null, other)).status, 404);
   });
 
-  it("requirements can be removed, and go with the task", async () => {
+  it("requirements can be removed, and go with the tender", async () => {
     const d = (await t.call("GET", `/api/tender_tasks/${task.id}`, null, pm)).body;
     const r = await t.call("DELETE", `/api/tender_requirements/${d.checklist[4].id}`, null, pm);
     assert.equal(r.status, 200); assert.equal(r.body.checklist.length, 4);
     assert.equal((await t.call("DELETE", `/api/tender_tasks/${task.id}`, null, gpm)).status, 200);
-    assert.equal((await t.db.query("SELECT COUNT(*) AS n FROM tender_task_requirements")).map((x) => Number(x.n))[0], 0);
+    // the checklist belongs to the tender, so it stays when a task is deleted, and goes with the tender
+    assert.equal((await t.db.query("SELECT COUNT(*) AS n FROM tender_requirements")).map((x) => Number(x.n))[0], 4);
+    assert.equal((await t.call("DELETE", `/api/tenders/${task.tender}`, null, gpm)).status, 200);
+    assert.equal((await t.db.query("SELECT COUNT(*) AS n FROM tender_requirements")).map((x) => Number(x.n))[0], 0);
   });
 });

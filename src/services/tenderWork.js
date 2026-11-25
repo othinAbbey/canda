@@ -3,7 +3,6 @@ import { HttpError, ValidationError, notFound } from "../errors.js";
 import { resourcesRepo } from "../repos/resources.js";
 import { tenderWorkRepo } from "../repos/tenderWork.js";
 import { usersRepo } from "../repos/users.js";
-import { categorize, readRequirements } from "../domain/requirements.js";
 
 const OPEN = ["saved", "interested", "bidding", "submitted"];       // stages that still count as "in the pipeline"
 const PRIORITY = ["low", "medium", "high"], STATUS = ["todo", "doing", "done"];
@@ -12,11 +11,10 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const STAGES = [["not_started", "Not started"], ["documents", "Getting the bid documents"], ["site_visit", "Site visit / pre-bid meeting"],
   ["preparing", "Preparing documents"], ["pricing", "Pricing the BOQ"], ["review", "Internal review"], ["submitted", "Bid submitted"]];
 const STAGE_KEYS = STAGES.map(([k]) => k), STAGE_NAME = Object.fromEntries(STAGES);
-const REQ_STATUS = ["pending", "done", "na"];
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** Pipeline totals, the list of people tasks can go to, and tender tasks with copies. */
-export function createTenderWork({ db, roles, audit }) {
+export function createTenderWork({ db, roles, audit, bids }) {
   const tenders = resourcesRepo(db), repo = tenderWorkRepo(db), users = usersRepo(db);
   const staff = async (actor) => (await users.list(actor.organization_id)).filter((u) => u.status === "active");   // own company only
   const person = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, role_name: roles.nameOf(u.role) });
@@ -24,9 +22,10 @@ export function createTenderWork({ db, roles, audit }) {
   /** Adds copies, progress (requirements ticked off) and the latest progress note to each task. */
   async function present(rows, meId) {
     const ids = rows.map((r) => r.id);
-    const [copies, counts, notes] = await Promise.all([repo.copiesFor(ids), repo.requirementCounts(ids), repo.lastUpdates(ids)]);
+    const [copies, counts, notes] = await Promise.all([repo.copiesFor(ids), bids.countsFor([...new Set(rows.map((r) => r.tender))]), repo.lastUpdates(ids)]);
     return rows.map((t) => {
-      const n = (st) => Number(counts.find((c) => c.task === t.id && c.status === st)?.n || 0);
+      // the checklist belongs to the tender, so every task on a tender shows the same requirements
+      const n = (st) => Number(counts.find((c) => c.tender === t.tender && c.status === st)?.n || 0);
       const done = n("done"), total = done + n("pending");                    // "not applicable" items do not count
       const last = notes.filter((x) => x.task === t.id).sort((a, b) => String(b.created).localeCompare(String(a.created)))[0];
       return {
@@ -130,7 +129,7 @@ export function createTenderWork({ db, roles, audit }) {
     /** One task with its requirements checklist and progress notes. */
     async detail(actor, id) {
       const a = await access(actor, id);
-      const [task, requirements, updates] = await Promise.all([one(actor, id), repo.requirements(id), repo.updates(id)]);
+      const [task, requirements, updates] = await Promise.all([one(actor, id), bids.checklist(a.task.tender), repo.updates(id)]);
       return { ...task, can_edit: a.edit, checklist: requirements, updates };
     },
 
@@ -159,45 +158,9 @@ export function createTenderWork({ db, roles, audit }) {
       };
     },
 
-    /** Adds requirements to the checklist: [{ text, category? }] or plain strings. `source` says where they came from. */
-    async addRequirements(actor, id, body) {
-      const a = await access(actor, id); mustEdit(a);
-      const source = body.source || "manual";
-      if (!["manual", "reader", "assistant"].includes(source)) throw new ValidationError("source must be manual, reader or assistant");
-      const items = (Array.isArray(body.items) ? body.items : [body]).map((x) => (typeof x === "string" ? { text: x } : x || {}))
-        .map((x) => ({ text: String(x.text || "").replace(/\s+/g, " ").trim(), category: String(x.category || "").trim().slice(0, 60) || null })).filter((x) => x.text);
-      if (!items.length) throw new ValidationError("write the requirement");
-      if (items.length > 100) throw new ValidationError("add at most 100 requirements at a time");
-      if (items.some((x) => x.text.length > 500)) throw new ValidationError("keep each requirement under 500 characters");
-      let position = await repo.nextPosition(id);
-      await db.tx(async (t) => { const w = tenderWorkRepo(t); for (const x of items) await w.insertRequirement({ task: id, position: position++, text: x.text, category: x.category || categorize(x.text), source }, actor.id); });
-      await audit.log(actor, { action: "update", entity: "tender_tasks", id, summary: `${a.task.title}: ${items.length} requirement${items.length === 1 ? "" : "s"} added (${source})` });
-      return this.detail(actor, id);
-    },
-
-    async updateRequirement(actor, reqId, body) {
-      const req = await repo.requirement(reqId, actor.organization_id); if (!req) throw notFound("requirement not found");
-      const a = await access(actor, req.task); mustEdit(a);
-      const values = {};
-      if ("status" in body) {
-        if (!REQ_STATUS.includes(body.status)) throw new ValidationError(`status must be one of ${REQ_STATUS.join(", ")}`);
-        values.status = body.status; values.done_by = body.status === "done" ? actor.id : null; values.done_at = body.status === "done" ? new Date().toISOString() : null;
-      }
-      if ("note" in body) values.note = String(body.note || "").trim().slice(0, 1000) || null;
-      if ("text" in body) { const t = String(body.text || "").trim(); if (!t || t.length > 500) throw new ValidationError("the requirement needs text (up to 500 characters)"); values.text = t; }
-      if ("category" in body) values.category = String(body.category || "").trim().slice(0, 60) || null;
-      if (!Object.keys(values).length) throw new ValidationError("nothing to change");
-      await repo.updateRequirement(reqId, values);
-      if (values.status && values.status !== req.status) await audit.log(actor, { action: "update", entity: "tender_tasks", id: req.task, summary: `${a.task.title}: "${req.text.slice(0, 80)}" ${values.status === "done" ? "done" : values.status === "na" ? "not applicable" : "reopened"}` });
-      return this.detail(actor, req.task);
-    },
-
-    async removeRequirement(actor, reqId) {
-      const req = await repo.requirement(reqId, actor.organization_id); if (!req) throw notFound("requirement not found");
-      mustEdit(await access(actor, req.task));
-      await repo.removeRequirement(reqId);
-      return this.detail(actor, req.task);
-    },
+    // The checklist lives on the tender (services/bids.js). These keep the task-based addresses working.
+    async addRequirements(actor, id, body) { const a = await access(actor, id); mustEdit(a); await bids.addRequirements(actor, a.task.tender, body); return this.detail(actor, id); },
+    async readRequirements(actor, id, body) { const a = await access(actor, id); mustEdit(a); return bids.readText(actor, a.task.tender, body); },
 
     /** A progress note, optionally moving the bid to another stage. */
     async postUpdate(actor, id, body) {
@@ -214,17 +177,6 @@ export function createTenderWork({ db, roles, audit }) {
       });
       await audit.log(actor, { action: "update", entity: "tender_tasks", id, summary: `${a.task.title}: progress note${moved ? ` (${STAGE_NAME[stage]})` : ""}` });
       return this.detail(actor, id);
-    },
-
-    /** Lists the requirements found in pasted bid-document text. Nothing is saved: the person picks which to add. */
-    async readRequirements(actor, id, body) {
-      mustEdit(await access(actor, id));
-      const text = String(body.text || "");
-      if (text.trim().length < 20) throw new ValidationError("paste the requirements section of the bid document (at least a few lines)");
-      if (text.length > 200000) throw new ValidationError("the text is too long: paste the instructions to bidders and the requirements sections only");
-      const have = new Set((await repo.requirements(id)).map((r) => r.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
-      const items = readRequirements(text).map((x) => ({ ...x, already: have.has(x.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()) }));
-      return { reader: "built-in", items };
     },
 
     async remove(actor, id) {

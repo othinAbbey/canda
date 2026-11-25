@@ -7,7 +7,7 @@ import { DbError } from "../../src/errors.js";
 const KIND = [[/UNIQUE constraint failed/, "unique"], [/FOREIGN KEY constraint failed/, "fk"], [/CHECK constraint failed/, "check"], [/NOT NULL constraint failed/, "notnull"]];
 const wrap = (e) => { const m = KIND.find(([re]) => re.test(e.message)); return m ? new DbError(m[1], e.message) : e; };
 const sql$ = (s) => s.replace(/\$(\d+)/g, "?$1");
-const norm = (v) => (v === undefined ? null : v instanceof Uint8Array && !Buffer.isBuffer(v) ? Buffer.from(v) : v);
+const norm = (v) => (v === undefined ? null : typeof v === "boolean" ? (v ? 1 : 0) : v instanceof Uint8Array && !Buffer.isBuffer(v) ? Buffer.from(v) : v);   // SQLite has no booleans; Postgres gets real ones
 const out = (row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, v instanceof Uint8Array && !Buffer.isBuffer(v) ? Buffer.from(v) : v]));
 
 export function createSqliteDb() {

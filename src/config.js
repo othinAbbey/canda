@@ -12,7 +12,7 @@ export function loadConfig(env = process.env) {
     port: num(env.PORT, 8100),
     // Render (and most hosts) only route traffic to a server listening on all interfaces.
     host: env.HOST || (env.RENDER ? "0.0.0.0" : "127.0.0.1"),
-    corsOrigins: list(env.CORS_ORIGINS, ["http://localhost:3000","https://buildsuite360.org","https://www.buildsuite360.org"]),
+    corsOrigins: list(env.CORS_ORIGINS, ["http://localhost:3000"]),
     tokenSecret: env.TOKEN_SECRET || "",
     tokenHours: num(env.TOKEN_HOURS, 12),
     allowSignup: bool(env.ALLOW_SIGNUP, true),
@@ -21,6 +21,17 @@ export function loadConfig(env = process.env) {
     enforcePlanLimits: bool(env.ENFORCE_PLAN_LIMITS, false),
     boq: { url: (env.BOQ_SERVICE_URL || "http://127.0.0.1:8000").replace(/\/+$/, ""), key: env.BOQ_SERVICE_KEY || "" },
     seed: bool(env.SEED, true),
+    // The AI that reads bid documents (Claude). Without a key the built-in reader handles web-page text only.
+    ai: {
+      apiKey: env.ANTHROPIC_API_KEY || "",
+      model: env.AI_MODEL || "claude-sonnet-5-5",
+      autoRead: bool(env.AI_AUTO_READ, true),        // start reading when a tender is marked interested
+      delayMs: num(env.AI_READ_DELAY_MS, 3000),
+      assistantModel: env.AI_ASSISTANT_MODEL || "claude-haiku-5-5",   // everyday questions: the smaller, cheaper model
+      monthlyQuestions: num(env.AI_MONTHLY_QUESTIONS, 1000),          // per company per month; 0 = no limit
+      chatBot: bool(env.AI_CHAT_BOT, true),                          // the bot reads project chat rooms and drafts site logs / issues
+      monthlyChatReads: num(env.AI_MONTHLY_CHAT_READS, 3000),         // chat messages the bot reads per company per month; 0 = no limit
+    },
     // Tender feeds, all on by default (set to false to switch one off). The *_URL settings only move a feed's address.
     tenderFeeds: {
       afdb: bool(env.AFDB_FEED, true),

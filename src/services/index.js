@@ -26,21 +26,27 @@ import { createSchedule } from "./schedule.js";
 import { createSourcing } from "./sourcing.js";
 import { createSummary } from "./summary.js";
 import { createTenderWork } from "./tenderWork.js";
+import { createBids } from "./bids.js";
+import { createAiClient } from "./aiClient.js";
+import { createAssistant } from "./assistant.js";
+import { createSiteChat } from "./siteChat.js";
 import { createTenders, defaultTenderProviders } from "./tenders.js";
 import { createLimiter } from "../http/rateLimit.js";
 
 /** Builds every service from the database and config. The only place that wires repos to services. */
-export function createServices({ db, config, secret, boqClient = createBoqClient(config.boq), tenderProviders }) {
+export function createServices({ db, config, secret, boqClient = createBoqClient(config.boq), tenderProviders, aiClient, fetcher }) {
   const users = usersRepo(db), resourcesR = resourcesRepo(db), catalog = catalogRepo(db), auditR = auditRepo(db);
   const audit = createAudit(auditR);
   const limiter = createLimiter({ max: 10, windowMs: 5 * 60_000 });
   const roles = createRoles({ repo: rolesRepo(db), audit });
   const schedule = createSchedule({ db, audit });
-  const resources = createResources({ repo: resourcesR, audit, hooks: { tasks: schedule.checkTask } });
+  const ai = aiClient ?? createAiClient(config.ai);
+  const bids = createBids({ db, audit, ai, fetcher, delayMs: config.ai.delayMs, autoRead: config.ai.autoRead });
+  const resources = createResources({ repo: resourcesR, audit, hooks: { tasks: schedule.checkTask }, after: { tenders: (row, before) => bids.onTenderSaved(row, before) } });
   const billing = createBilling({ billing: billingRepo(db), users, audit, config });
   const organizations = createOrganizations({ repo: organizationsRepo(db), audit });
-  return {
-    audit, resources, billing, schedule, roles, organizations,
+  const svc = {
+    audit, resources, billing, schedule, roles, organizations, bids,
     accounts: createAccounts({ db, users, roles, audit, config, secret, limiter }),
     summary: createSummary({ resources, stats: projectStatsRepo(db), audit: auditR, files: filesRepo(db) }),
     sourcing: createSourcing({ resources, catalog }),
@@ -49,8 +55,11 @@ export function createServices({ db, config, secret, boqClient = createBoqClient
     files: createFiles({ files: filesRepo(db), resources, audit, config }),
     boq: createBoq({ boq: boqRepo(db), client: boqClient, billing, audit, config }),
     tenders: createTenders({ db, providers: tenderProviders ?? defaultTenderProviders(config) }),
-    tenderWork: createTenderWork({ db, roles, audit }),
+    tenderWork: createTenderWork({ db, roles, audit, bids }),
     market: createMarket({ db, audit }),
     contact: createContact({ messages: messagesRepo(db), organizations, audit, limiter }),
   };
+  svc.assistant = createAssistant({ db, ai, services: svc, config });
+  svc.siteChat = createSiteChat({ db, ai, resources, assistant: svc.assistant, audit, config });
+  return svc;
 }

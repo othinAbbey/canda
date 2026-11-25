@@ -5,12 +5,12 @@ import { seedIfEmpty } from "../../src/seed.js";
 import { createSqliteDb } from "./sqliteDb.js";
 
 /** A running API on a random port with an in-memory database. `boq` stubs the BOQ service. */
-export async function startTestApp({ env = {}, seed = true, boq, tenders } = {}) {
+export async function startTestApp({ env = {}, seed = true, boq, tenders, ai, fetcher } = {}) {
   const db = createSqliteDb();
   await migrate(db);
   if (seed) await seedIfEmpty(db);
-  const config = loadConfig({ TOKEN_SECRET: "test-secret", CORS_ORIGINS: "http://localhost:3000", ...env });
-  const app = await createApp({ db, config, boqClient: boq, tenderProviders: tenders });
+  const config = loadConfig({ TOKEN_SECRET: "test-secret", CORS_ORIGINS: "http://localhost:3000", AI_READ_DELAY_MS: "0", ...env });
+  const app = await createApp({ db, config, boqClient: boq, tenderProviders: tenders, aiClient: ai, fetcher: fetcher ?? (async () => { throw new (await import("../../src/tenders/safeFetch.js")).FetchError("no network in tests"); }) });
   await new Promise((r) => app.server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
 

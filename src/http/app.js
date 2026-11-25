@@ -10,10 +10,11 @@ import { ensureSecret } from "../auth/secret.js";
 const DB_MESSAGE = { unique: "that already exists", fk: "a linked record (project, material, supplier or location) does not exist", check: "one of the values is not allowed (check status, priority or severity)", notnull: "a required field is missing" };
 
 /** Builds the HTTP server. Pass `services` in tests to stub outside systems (e.g. the BOQ client). */
-export async function createApp({ db, config, boqClient, tenderProviders, services }) {
+export async function createApp({ db, config, boqClient, tenderProviders, aiClient, fetcher, services }) {
   const secret = await ensureSecret(db, config);
-  const svc = services || createServices({ db, config, secret, boqClient, tenderProviders });
+  const svc = services || createServices({ db, config, secret, boqClient, tenderProviders, aiClient, fetcher });
   await svc.roles.ensureBuiltIns();
+  await svc.bids?.resume();
   const router = new Router();
   registerRoutes(router, svc, { config, db });
 

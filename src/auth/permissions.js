@@ -24,6 +24,8 @@ export const PERMISSIONS = [
   { key: "tasks:oversee", group: "Tenders", label: "See every company task, its progress and requirements (Company Tasks)" },
   { key: "market:read", group: "Subcontracts", label: "See the shared subcontracts marketplace and contact other companies" },
   { key: "market:post", group: "Subcontracts", label: "Post subcontracts and availability for the company; apply and answer applications" },
+  { key: "chat:use", group: "Assistant", label: "Use Site Chat with the team and the bot" },
+  { key: "assistant:use", group: "Assistant", label: "Ask the AI project assistant questions and let it propose changes (each change needs your OK)" },
   { key: "audit:read", group: "Oversight", label: "See the audit trail" },
   { key: "messages:read", group: "Oversight", label: "Read and triage website messages" },
   { key: "messages:manage", group: "Oversight", label: "Delete website messages" },
@@ -36,7 +38,7 @@ export const ALL_PERMISSIONS = PERMISSIONS.map((p) => p.key).sort();
 export const ADMIN_ONLY = new Set(PERMISSIONS.filter((p) => p.adminOnly).map((p) => p.key));
 
 const CUSTOMER = ["catalog:read", "catalog:propose", "boq:use", "billing:read", "market:read"];
-const STAFF_READ = [...CUSTOMER, "projects:read", "files:read", "tenders:read"];
+const STAFF_READ = [...CUSTOMER, "projects:read", "files:read", "tenders:read", "assistant:use", "chat:use"];
 
 export const BUILT_IN_ROLES = {
   admin: { name: "Administrator", description: "Everything, including users and roles.", permissions: ["*"] },
@@ -64,6 +66,8 @@ export const BUILT_IN_ROLES = {
  * Never edit a released grant: add a new one with a new id.
  */
 export const ROLE_GRANTS = [
+  { id: "2026-11-site-chat", roles: { general_pm: ["chat:use"], manager: ["chat:use"], viewer: ["chat:use"], director: ["chat:use"] } },
+  { id: "2026-11-assistant", roles: { general_pm: ["assistant:use"], manager: ["assistant:use"], viewer: ["assistant:use"], director: ["assistant:use"] } },
   { id: "2026-11-subcontracts", roles: { general_pm: ["market:read", "market:post"], manager: ["market:read", "market:post"], viewer: ["market:read"], user: ["market:read"] } },
 ];
 

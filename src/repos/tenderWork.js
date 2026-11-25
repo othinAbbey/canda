@@ -24,11 +24,6 @@ export const tenderWorkRepo = (db) => ({
       FROM tender_tasks t JOIN tenders td ON td.id = t.tender JOIN users u ON u.id = t.assignee
       WHERE ${where.join(" AND ")} ORDER BY CASE WHEN t.due IS NULL THEN 1 ELSE 0 END, t.due, t.id`, params);
   },
-  /** Requirement counts per task and status, for progress bars. */
-  requirementCounts(taskIds) {
-    if (!taskIds.length) return Promise.resolve([]);
-    return db.query(`SELECT task, status, COUNT(*) AS n FROM tender_task_requirements WHERE task IN (${taskIds.map((_, i) => `$${i + 1}`).join(",")}) GROUP BY task, status`, taskIds);
-  },
   /** The newest progress note of each task. */
   lastUpdates(taskIds) {
     if (!taskIds.length) return Promise.resolve([]);
@@ -36,19 +31,6 @@ export const tenderWorkRepo = (db) => ({
     return db.query(`SELECT p.task, p.body, p.created, u.name AS by_name, u.email AS by_email FROM tender_task_updates p LEFT JOIN users u ON u.id = p.created_by
       WHERE p.task IN (${list}) AND p.created = (SELECT MAX(q.created) FROM tender_task_updates q WHERE q.task = p.task)`, taskIds);
   },
-
-  requirements: (task) => db.query(`SELECT r.*, u.name AS done_by_name, u.email AS done_by_email FROM tender_task_requirements r LEFT JOIN users u ON u.id = r.done_by
-    WHERE r.task = $1 ORDER BY r.position, r.created, r.id`, [task]),
-  requirement: (id, organizationId) => one(db, `SELECT r.* FROM tender_task_requirements r JOIN tender_tasks t ON t.id = r.task JOIN tenders td ON td.id = t.tender
-    WHERE r.id = $1 AND td.organization_id = $2`, [id, organizationId]),
-  nextPosition: async (task) => Number((await one(db, "SELECT COALESCE(MAX(position), 0) AS n FROM tender_task_requirements WHERE task = $1", [task]))?.n ?? 0) + 1,
-  insertRequirement: (r, userId) => one(db, "INSERT INTO tender_task_requirements (id, created, created_by, task, position, text, category, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
-    [newId(), now(), userId, r.task, r.position, r.text, r.category, r.source]),
-  updateRequirement(id, values) {
-    const row = { ...values, updated: now() }, cols = Object.keys(row);
-    return one(db, `UPDATE tender_task_requirements SET ${cols.map((c, i) => `${c} = $${i + 1}`).join(", ")} WHERE id = $${cols.length + 1} RETURNING *`, [...Object.values(row), id]);
-  },
-  removeRequirement: (id) => one(db, "DELETE FROM tender_task_requirements WHERE id = $1 RETURNING id", [id]),
 
   updates: (task) => db.query(`SELECT p.*, u.name AS by_name, u.email AS by_email FROM tender_task_updates p LEFT JOIN users u ON u.id = p.created_by
     WHERE p.task = $1 ORDER BY p.created DESC, p.id DESC`, [task]),

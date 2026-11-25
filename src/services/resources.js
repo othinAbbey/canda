@@ -5,7 +5,7 @@ const label = (r) => String(r.name || r.title || r.item || r.work || (r.price !=
 
 /** Create / read / update / delete for every table in RESOURCES, with validation and audit in one place.
  *  `hooks[table](values, existing, actor)` may check or adjust the values before they are saved (throw a ValidationError to refuse). */
-export function createResources({ repo, audit, hooks = {} }) {
+export function createResources({ repo, audit, hooks = {}, after = {} }) {
   const projectOf = (table, row) => { const f = RESOURCES[table].projectOf; return f ? row[f] : null; };
   const must = async (table, id, organizationId) => { const r = await repo.get(table, id, organizationId); if (!r) throw notFound(); return r; };
 
@@ -18,6 +18,7 @@ export function createResources({ repo, audit, hooks = {} }) {
       if (hooks[table]) await hooks[table](values, null, actor);
       const row = await repo.insert(table, values, actor.id, actor.organization_id);
       await audit.log(actor, { action: "create", entity: table, id: row.id, project: projectOf(table, row), summary: label(row) });
+      if (after[table]) await after[table](row, null, actor);
       return row;
     },
     async update(actor, table, id, body) {
@@ -30,6 +31,7 @@ export function createResources({ repo, audit, hooks = {} }) {
       const changes = {};
       for (const k of Object.keys(RESOURCES[table].cols)) if (before[k] !== row[k]) changes[k] = [before[k] ?? null, row[k] ?? null];
       await audit.log(actor, { action: "update", entity: table, id, project: projectOf(table, row), summary: `${label(row)}: ${Object.keys(changes).join(", ") || "no change"}`, changes });
+      if (after[table]) await after[table](row, before, actor);
       return row;
     },
     async remove(actor, table, id) {

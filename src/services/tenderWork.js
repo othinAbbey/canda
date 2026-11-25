@@ -11,7 +11,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** Pipeline totals, the list of people tasks can go to, and tender tasks with copies. */
 export function createTenderWork({ db, roles, audit }) {
   const tenders = resourcesRepo(db), repo = tenderWorkRepo(db), users = usersRepo(db);
-  const staff = async () => (await users.list()).filter((u) => u.status === "active");
+  const staff = async (actor) => (await users.list(actor.organization_id)).filter((u) => u.status === "active");   // own company only
   const person = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, role_name: roles.nameOf(u.role) });
 
   async function present(rows, meId) {
@@ -24,8 +24,8 @@ export function createTenderWork({ db, roles, audit }) {
 
   return {
     /** Value of the pipeline per currency. Currencies are never mixed: UGX is shown on its own. */
-    async summary() {
-      const rows = await repo.summary(), sum = (statuses) => {
+    async summary(actor) {
+      const rows = await repo.summary(actor.organization_id), sum = (statuses) => {
         const out = {};
         for (const r of rows) if (statuses.includes(r.status)) out[r.currency] = (out[r.currency] || 0) + r.total;
         return out;
@@ -39,22 +39,22 @@ export function createTenderWork({ db, roles, audit }) {
     },
 
     /** People tasks can be given to. `role` narrows it, for example "manager" for the project-manager dropdown. */
-    async team({ role } = {}) {
-      return (await staff()).filter((u) => (role ? u.role === role : roles.permissionsOf(u.role).includes("projects:read"))).map(person);
+    async team(actor, { role } = {}) {
+      return (await staff(actor)).filter((u) => (role ? u.role === role : roles.permissionsOf(u.role).includes("projects:read"))).map(person);
     },
 
     async assign(actor, tenderId, body) {
-      const tender = await tenders.get("tenders", tenderId); if (!tender) throw notFound("tender not found");
+      const tender = await tenders.get("tenders", tenderId, actor.organization_id); if (!tender) throw notFound("tender not found");
       const title = String(body.title || "").trim();
       if (!title || title.length > 200) throw new ValidationError("give the task a title (up to 200 characters)");
       const assignee = body.assignee && (await users.byId(body.assignee));
-      if (!assignee || assignee.status !== "active" || assignee.role !== "manager") throw new ValidationError("choose a project manager from the list");
+      if (!assignee || assignee.organization_id !== actor.organization_id || assignee.status !== "active" || assignee.role !== "manager") throw new ValidationError("choose a project manager from the list");
       const due = body.due ? String(body.due) : null, priority = body.priority || "medium", notes = String(body.notes || "").trim().slice(0, 2000) || null;
       if (due && !DATE.test(due)) throw new ValidationError("due must be a date (YYYY-MM-DD)");
       if (!PRIORITY.includes(priority)) throw new ValidationError(`priority must be one of ${PRIORITY.join(", ")}`);
 
       // Copy in every general project manager, plus anyone extra the sender chose.
-      const all = await staff(), copies = new Set(all.filter((u) => u.role === "general_pm").map((u) => u.id));
+      const all = await staff(actor), copies = new Set(all.filter((u) => u.role === "general_pm").map((u) => u.id));
       for (const id of Array.isArray(body.cc) ? body.cc : []) {
         const u = all.find((x) => x.id === id);
         if (!u || !roles.permissionsOf(u.role).includes("tenders:read")) throw new ValidationError("one of the people to copy cannot be copied (choose active staff)");
@@ -68,16 +68,16 @@ export function createTenderWork({ db, roles, audit }) {
         return row;
       });
       await audit.log(actor, { action: "assign", entity: "tender_tasks", id: task.id, summary: `"${title}" for ${assignee.name || assignee.email} on ${tender.title}`, changes: { copied: [...copies] } });
-      return (await present(await repo.tasks({ tender: tender.id }).then((r) => r.filter((x) => x.id === task.id))))[0];
+      return (await present(await repo.tasks({ organizationId: actor.organization_id, tender: tender.id }).then((r) => r.filter((x) => x.id === task.id))))[0];
     },
 
     async list(actor, { mine, tender, status } = {}) {
       const meId = mine ? actor.id : null;
-      return present(await repo.tasks({ tender, status, mine: meId }), meId);
+      return present(await repo.tasks({ organizationId: actor.organization_id, tender, status, mine: meId }), meId);
     },
 
     async update(actor, id, body) {
-      const task = await repo.task(id); if (!task) throw notFound("task not found");
+      const task = await repo.task(id, actor.organization_id); if (!task) throw notFound("task not found");
       const assigner = can(actor, "tenders:assign");
       if (task.assignee !== actor.id && !assigner) throw new HttpError(403, "only the person it is assigned to, or someone who assigns tasks, can change it");
       const values = {};
@@ -90,11 +90,11 @@ export function createTenderWork({ db, roles, audit }) {
       const row = await repo.updateTask(id, values);
       const changes = {}; for (const k of Object.keys(values)) if (task[k] !== row[k]) changes[k] = [task[k] ?? null, row[k] ?? null];
       await audit.log(actor, { action: "update", entity: "tender_tasks", id, summary: `${row.title}: ${Object.keys(changes).join(", ") || "no change"}`, changes });
-      return (await present((await repo.tasks({ tender: row.tender })).filter((x) => x.id === id)))[0];
+      return (await present((await repo.tasks({ organizationId: actor.organization_id, tender: row.tender })).filter((x) => x.id === id)))[0];
     },
 
     async remove(actor, id) {
-      const task = await repo.task(id); if (!task) throw notFound("task not found");
+      const task = await repo.task(id, actor.organization_id); if (!task) throw notFound("task not found");
       await repo.removeTask(id);
       await audit.log(actor, { action: "delete", entity: "tender_tasks", id, summary: task.title, changes: task });
     },

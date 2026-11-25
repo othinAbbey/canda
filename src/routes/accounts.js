@@ -10,6 +10,10 @@ export default function accountRoutes(r, { accounts, billing, organizations }) {
   r.get("/api/me", {}, async (c) => ({ ...accounts.pub(c.user), organization: organizations.publicOrg(await organizations.get(c.user.organization_id)), plan: await billing.planOf(c.user) }));
   r.post("/api/me/password", {}, async (c) => accounts.changePassword(c.user, await c.json(), c.ip));
 
+  // the signed-in user's company: everyone sees its name and logo, admins change them
+  r.get("/api/organization", {}, async (c) => organizations.publicOrg(await organizations.get(c.user.organization_id)));
+  r.patch("/api/organization", { perm: "users:manage" }, async (c) => organizations.update(c.user, await c.json()));
+
   // admin: manage accounts within their own organization
   const admin = { perm: "users:manage" };
   r.get("/api/users", admin, (c) => accounts.list(c.user));

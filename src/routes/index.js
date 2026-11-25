@@ -5,6 +5,7 @@ import boqRoutes from "./boq.js";
 import contactRoutes from "./contact.js";
 import fileRoutes from "./files.js";
 import formRoutes from "./forms.js";
+import marketRoutes from "./market.js";
 import proposalRoutes from "./proposals.js";
 import resourceRoutes from "./resources.js";
 import roleRoutes from "./roles.js";
@@ -17,5 +18,5 @@ import tenderRoutes from "./tenders.js";
 export function registerRoutes(router, svc, ctx) {
   router.get("/api/health", { public: true }, () => ({ ok: true, setup_required: false }));
   // Order matters: tenderRoutes must come before resourceRoutes so "/api/tenders/search" is not read as a tender id.
-  for (const register of [accountRoutes, roleRoutes, tenderRoutes, scheduleRoutes, formRoutes, resourceRoutes, summaryRoutes, sourcingRoutes, proposalRoutes, fileRoutes, boqRoutes, billingRoutes, auditRoutes, contactRoutes]) register(router, svc, ctx);
+  for (const register of [accountRoutes, roleRoutes, tenderRoutes, scheduleRoutes, formRoutes, resourceRoutes, summaryRoutes, sourcingRoutes, proposalRoutes, fileRoutes, boqRoutes, billingRoutes, auditRoutes, contactRoutes, marketRoutes]) register(router, svc, ctx);
 }

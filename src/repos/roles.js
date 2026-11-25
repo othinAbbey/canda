@@ -9,5 +9,7 @@ export const rolesRepo = (db) => ({
     [r.code, r.name, r.description, toJson(r.permissions), r.builtin ? 1 : 0, now()]),
   update: (code, r) => one(db, "UPDATE roles SET name = $1, description = $2, permissions = $3, updated = $4 WHERE code = $5 RETURNING *", [r.name, r.description, toJson(r.permissions), now(), code]),
   remove: (code) => one(db, "DELETE FROM roles WHERE code = $1 RETURNING code", [code]),
+  grantApplied: async (id) => !!(await one(db, "SELECT id FROM role_grants WHERE id = $1", [id])),
+  markGrant: (id) => db.query("INSERT INTO role_grants (id, applied) VALUES ($1, $2)", [id, now()]),
   userCounts: () => db.query("SELECT role, COUNT(*) AS n FROM users GROUP BY role"),
 });

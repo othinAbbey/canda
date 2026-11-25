@@ -72,15 +72,16 @@ export function createSchedule({ db, audit }) {
     },
 
     /** Check run before a task is created or changed (see services/resources.js hooks). */
-    async checkTask(values, existing) {
+    async checkTask(values, existing, actor) {
+      const org = actor?.organization_id;
       const project = values.project ?? existing?.project;
       if (values.parent) {
         if (existing && values.parent === existing.id) throw new ValidationError("a task cannot be its own parent");
-        const parent = await rows.get("tasks", values.parent);
+        const parent = await rows.get("tasks", values.parent, org);
         if (!parent || parent.project !== project) throw new ValidationError("the parent must be a task in the same project");
         for (let up = parent, guard = 0; existing && up && guard < 100; guard++) {
           if (up.id === existing.id) throw new ValidationError("that would put the task inside itself");
-          up = up.parent ? await rows.get("tasks", up.parent) : null;
+          up = up.parent ? await rows.get("tasks", up.parent, org) : null;
         }
       }
       if (values.percent != null) whole(values.percent, "percent", 0, 100);

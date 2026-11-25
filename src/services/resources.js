@@ -4,7 +4,7 @@ import { notFound } from "../errors.js";
 const label = (r) => String(r.name || r.title || r.item || r.work || (r.price != null ? `rate ${r.price}` : r.id)).slice(0, 80);
 
 /** Create / read / update / delete for every table in RESOURCES, with validation and audit in one place.
- *  `hooks[table](values, existing)` may check or adjust the values before they are saved (throw a ValidationError to refuse). */
+ *  `hooks[table](values, existing, actor)` may check or adjust the values before they are saved (throw a ValidationError to refuse). */
 export function createResources({ repo, audit, hooks = {} }) {
   const projectOf = (table, row) => { const f = RESOURCES[table].projectOf; return f ? row[f] : null; };
   const must = async (table, id, organizationId) => { const r = await repo.get(table, id, organizationId); if (!r) throw notFound(); return r; };
@@ -15,7 +15,7 @@ export function createResources({ repo, audit, hooks = {} }) {
     async create(actor, table, body) {
       const values = clean(table, body);
       if (RESOURCES[table].projectOf && table !== "projects" && !(await repo.get("projects", values.project, actor.organization_id))) throw notFound("project not found");
-      if (hooks[table]) await hooks[table](values, null);
+      if (hooks[table]) await hooks[table](values, null, actor);
       const row = await repo.insert(table, values, actor.id, actor.organization_id);
       await audit.log(actor, { action: "create", entity: table, id: row.id, project: projectOf(table, row), summary: label(row) });
       return row;
@@ -24,7 +24,7 @@ export function createResources({ repo, audit, hooks = {} }) {
       const before = await must(table, id, actor.organization_id);
       const values = clean(table, body, { partial: true });
       if (RESOURCES[table].projectOf && table !== "projects" && values.project && !(await repo.get("projects", values.project, actor.organization_id))) throw notFound("project not found");
-      if (hooks[table]) await hooks[table](values, before);
+      if (hooks[table]) await hooks[table](values, before, actor);
       const row = await repo.update(table, id, values, actor.organization_id);
       if (!row) throw notFound();
       const changes = {};

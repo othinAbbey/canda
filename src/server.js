@@ -12,5 +12,5 @@ await migrate(db, (m) => console.log(m));
 if (config.seed) await seedIfEmpty(db);
 
 const app = await createApp({ db, config });
-app.server.listen(config.port, config.host, () => console.log(`C & A API on http://${config.host}:${config.port}`));
+app.server.listen(config.port, config.host, () => console.log(`API on http://${config.host}:${config.port}`));
 for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, async () => { await app.close(); await db.close(); process.exit(0); });

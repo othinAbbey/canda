@@ -5,9 +5,9 @@ export default function tenderRoutes(r, { tenders, tenderWork }) {
   // Registered BEFORE the generic routes so "/api/tenders/search" is not read as a tender id.
   const read = { perm: "tenders:read" }, assign = { perm: "tenders:assign" };
   r.get("/api/tenders/sources", read, () => tenders.sources());
-  r.get("/api/tenders/search", read, (c) => tenders.search(c.query));
-  r.get("/api/tenders/summary", read, () => tenderWork.summary());
-  r.get("/api/team", read, (c) => tenderWork.team(c.query));
+  r.get("/api/tenders/search", read, (c) => tenders.search(c.user, c.query));
+  r.get("/api/tenders/summary", read, (c) => tenderWork.summary(c.user));
+  r.get("/api/team", read, (c) => tenderWork.team(c.user, c.query));
 
   r.post("/api/tenders/:id/tasks", assign, async (c) => created(await tenderWork.assign(c.user, c.params.id, await c.json())));
   r.get("/api/tender_tasks", read, (c) => tenderWork.list(c.user, { mine: c.query.mine === "1", tender: c.query.tender, status: c.query.status }));

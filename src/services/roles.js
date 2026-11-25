@@ -1,4 +1,4 @@
-import { ADMIN_ONLY, ALL_PERMISSIONS, BUILT_IN_ROLES, PERMISSIONS } from "../auth/permissions.js";
+import { ADMIN_ONLY, ALL_PERMISSIONS, BUILT_IN_ROLES, PERMISSIONS, ROLE_GRANTS } from "../auth/permissions.js";
 import { HttpError, ValidationError, notFound } from "../errors.js";
 import { parseJson } from "../json.js";
 
@@ -30,6 +30,18 @@ export function createRoles({ repo, audit }) {
     /** Makes sure the built-in roles exist (never overwrites changes an admin made). */
     async ensureBuiltIns() {
       for (const [code, r] of Object.entries(BUILT_IN_ROLES)) if (!(await repo.get(code))) await repo.insert({ code, ...r, builtin: true });
+      // New rights reach roles saved before they existed, once per grant (an admin can still remove them afterwards).
+      for (const g of ROLE_GRANTS) {
+        if (await repo.grantApplied(g.id)) continue;
+        for (const [code, add] of Object.entries(g.roles)) {
+          const row = await repo.get(code); if (!row) continue;
+          const have = parseJson(row.permissions, []);
+          if (have.includes("*")) continue;
+          const next = [...new Set([...have, ...add])].sort();
+          if (next.length !== have.length) await repo.update(code, { name: row.name, description: row.description, permissions: next });
+        }
+        await repo.markGrant(g.id);
+      }
       await reload();
     },
     async fresh() { if (Date.now() - loadedAt > TTL) await reload(); },

@@ -12,7 +12,7 @@ export function loadConfig(env = process.env) {
     port: num(env.PORT, 8100),
     // Render (and most hosts) only route traffic to a server listening on all interfaces.
     host: env.HOST || (env.RENDER ? "0.0.0.0" : "127.0.0.1"),
-    corsOrigins: list(env.CORS_ORIGINS, ["http://localhost:3000","https://buildsuite360.org","https://www.buildsuite360.org",]),
+    corsOrigins: list(env.CORS_ORIGINS, ["http://localhost:3000"]),
     tokenSecret: env.TOKEN_SECRET || "",
     tokenHours: num(env.TOKEN_HOURS, 12),
     allowSignup: bool(env.ALLOW_SIGNUP, true),
@@ -21,5 +21,12 @@ export function loadConfig(env = process.env) {
     enforcePlanLimits: bool(env.ENFORCE_PLAN_LIMITS, false),
     boq: { url: (env.BOQ_SERVICE_URL || "http://127.0.0.1:8000").replace(/\/+$/, ""), key: env.BOQ_SERVICE_KEY || "" },
     seed: bool(env.SEED, true),
+    // Tender feeds, all on by default (set to false to switch one off). The *_URL settings only move a feed's address.
+    tenderFeeds: {
+      afdb: bool(env.AFDB_FEED, true),
+      afdbUrl: (env.AFDB_FEED_URL || "").trim() || undefined,
+      undp: bool(env.UNDP_FEED, true),
+      undpBase: (env.UNDP_FEEDS_URL || "").trim() || undefined,
+    },
   };
 }

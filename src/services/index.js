@@ -18,6 +18,7 @@ import { createContact } from "./contact.js";
 import { createFiles } from "./files.js";
 import { createForms } from "./forms.js";
 import { createOrganizations } from "./organizations.js";
+import { createMarket } from "./market.js";
 import { createProposals } from "./proposals.js";
 import { createResources } from "./resources.js";
 import { createRoles } from "./roles.js";
@@ -25,7 +26,7 @@ import { createSchedule } from "./schedule.js";
 import { createSourcing } from "./sourcing.js";
 import { createSummary } from "./summary.js";
 import { createTenderWork } from "./tenderWork.js";
-import { createTenders } from "./tenders.js";
+import { createTenders, defaultTenderProviders } from "./tenders.js";
 import { createLimiter } from "../http/rateLimit.js";
 
 /** Builds every service from the database and config. The only place that wires repos to services. */
@@ -37,7 +38,7 @@ export function createServices({ db, config, secret, boqClient = createBoqClient
   const schedule = createSchedule({ db, audit });
   const resources = createResources({ repo: resourcesR, audit, hooks: { tasks: schedule.checkTask } });
   const billing = createBilling({ billing: billingRepo(db), users, audit, config });
-  const organizations = createOrganizations({ repo: organizationsRepo(db) });
+  const organizations = createOrganizations({ repo: organizationsRepo(db), audit });
   return {
     audit, resources, billing, schedule, roles, organizations,
     accounts: createAccounts({ db, users, roles, audit, config, secret, limiter }),
@@ -47,8 +48,9 @@ export function createServices({ db, config, secret, boqClient = createBoqClient
     forms: createForms({ db, audit }),
     files: createFiles({ files: filesRepo(db), resources, audit, config }),
     boq: createBoq({ boq: boqRepo(db), client: boqClient, billing, audit, config }),
-    tenders: createTenders({ db, providers: tenderProviders }),
+    tenders: createTenders({ db, providers: tenderProviders ?? defaultTenderProviders(config) }),
     tenderWork: createTenderWork({ db, roles, audit }),
-    contact: createContact({ messages: messagesRepo(db), audit, limiter }),
+    market: createMarket({ db, audit }),
+    contact: createContact({ messages: messagesRepo(db), organizations, audit, limiter }),
   };
 }

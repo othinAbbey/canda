@@ -105,3 +105,40 @@ Usage is recorded; limits apply only when `ENFORCE_PLAN_LIMITS=true` (then `402`
 
 PostgreSQL. The schema is `migrations/*.sql`, applied in order by `npm run migrate`. The SQL in `src/repos` uses only portable
 features (`$1` placeholders, `RETURNING`, no vendor functions), which is why the test suite can also run it on an in-memory engine.
+
+## Company settings
+
+| Method | Path | Right | Notes |
+|---|---|---|---|
+| GET | /api/organization | signed in | `{id, name, logo_url}` of your company |
+| PATCH | /api/organization | users:manage | `{name?, logo_url?}`; logo is a PNG/JPEG/WebP/GIF data URL up to 512 KB, `null` removes it |
+
+## Privacy between companies
+
+Projects and everything under them, documents, forms, the audit trail, the website inbox, the tender pipeline, tender tasks and
+saved tender searches are private to one company: another company's ids answer 404. The material catalog is still shared.
+The **subcontracts marketplace** below is the one area every company sees on purpose.
+
+## Subcontracts marketplace (shared by all companies)
+
+| Method | Path | Right | Notes |
+|---|---|---|---|
+| GET | /api/market/options | market:read | `{kinds, trades}` |
+| GET | /api/market/listings | market:read | `?kind=subcontract|availability&trade=&region=&q=`; open listings of every company. `?mine=1`: all of your own company's |
+| GET | /api/market/listings/:id | market:read | your own listing includes `response_list`; otherwise `my_response` |
+| POST | /api/market/listings | market:post | `{kind, title, trade, description?, region?, district?, start_date?, end_date?, deadline?, value?, currency?, crew_size?, equipment?, requirements?, contact_name?, contact_phone?, contact_email?}`; phone or email required (defaults to your email) |
+| PATCH / DELETE | /api/market/listings/:id | market:post | own company only; `status`: open, awarded, closed (only open ones are listed publicly) |
+| POST | /api/market/listings/:id/responses | market:post | apply / send an enquiry `{message, price?, currency?, contact_*}`; one per company per listing, sending again edits it |
+| GET | /api/market/responses | market:read | responses your company sent |
+| PATCH | /api/market/responses/:id | market:post | poster: `{status: new|shortlisted|accepted|declined}`; responder: edit the message or `{status: "withdrawn"}` |
+
+Responses are visible only to the company that posted the listing and the company that responded.
+
+## Tender sources
+
+`GET /api/tenders/sources` lists what this server searches: **World Bank** (public API), **African Development Bank** (official
+project-procurement RSS feed, latest notices) and **UNDP** (official country-office RSS feeds: Uganda = UGA, Tanzania = URT,
+DR Congo = ZAI...; the Africa feed when no country is chosen), plus `all`, which merges them newest first.
+`GET /api/tenders/search?source=all&country=Uganda&q=construction` answers `{items[], total, has_more, failed[]}`; a source that is
+down is listed in `failed` instead of failing the search. Feeds are kept 10 minutes. `AFDB_FEED=false` / `UNDP_FEED=false` switch
+a feed off. UNGM is not searched: its terms forbid reusing its notices without written permission.

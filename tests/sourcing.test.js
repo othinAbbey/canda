@@ -158,10 +158,13 @@ describe("catalog suggestions need admin approval", () => {
 });
 
 describe("contact form and inbox", () => {
-  let t, admin, manager, user;
-  before(async () => { t = await startTestApp(); admin = await t.account("a@x.com"); manager = await t.account("m@x.com", "manager", admin); user = await t.account("u@x.com", "user", admin); });
+  let t, admin, manager, user, org;
+  before(async () => {
+    t = await startTestApp(); admin = await t.account("a@x.com"); manager = await t.account("m@x.com", "manager", admin); user = await t.account("u@x.com", "user", admin);
+    org = (await t.call("GET", "/api/me", null, admin)).body.organization.id;
+  });
   after(() => t.close());
-  const send = (b) => t.call("POST", "/api/contact", { name: "Joan", email: "joan@site.com", message: "Please quote a 3-bedroom house", ...b });
+  const send = (b) => t.call("POST", "/api/contact", { name: "Joan", email: "joan@site.com", message: "Please quote a 3-bedroom house", organization: org, ...b });
   it("stores public messages; managers read and triage them", async () => {
     assert.equal((await send({ phone: "0772000000" })).status, 201);
     const inbox = (await t.call("GET", "/api/messages", null, manager)).body;

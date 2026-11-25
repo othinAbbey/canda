@@ -23,7 +23,7 @@ describe("projects, documents, audit, summary", () => {
   });
 
   it("links children to projects, filters by project, and cascades deletes", async () => {
-    assert.equal((await t.call("POST", "/api/tasks", { title: "t", project: "missing" }, manager)).status, 400);
+    assert.equal((await t.call("POST", "/api/tasks", { title: "t", project: "missing" }, manager)).status, 404);
     const task = await t.call("POST", "/api/tasks", { title: "Pour slab", project: projectId, priority: "high" }, manager);
     assert.equal(task.status, 201); assert.equal(task.body.status, "todo");
     for (const [path, body] of [["costs", { item: "Cement", amount: 250000, category: "Materials" }], ["logs", { work: "Foundations", workers: 12 }], ["issues", { title: "Drawing clash", type: "RFI" }]])

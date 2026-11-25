@@ -4,9 +4,11 @@ import { ValidationError } from "../errors.js";
  * The simple "table of records" resources served by one generic set of routes.
  * Column types: text | number | date, a trailing "!" means required.
  * `read` / `write` are permission names (see auth/permissions.js).
+ * `org: true`  the table has its own organization_id: rows are private to one company.
+ * `projectOf`  the row belongs to a project, so it is private to the project's company.
  */
 export const RESOURCES = {
-  projects: { read: "projects:read", write: "projects:write", projectOf: "id",
+  projects: { read: "projects:read", write: "projects:write", projectOf: "id", org: true,
     cols: { name: "text!", client: "text", location: "text", budget: "number", start: "date", end: "date", manager: "text", status: "text", workweek: "text" } },
   tasks: { read: "projects:read", write: "projects:write", projectOf: "project",
     cols: { project: "text!", title: "text!", assignee: "text", priority: "text", start: "date", due: "date", status: "text",
@@ -23,9 +25,9 @@ export const RESOURCES = {
     cols: { name: "text!", category: "text", unit: "text!", size: "text", description: "text" } },
   suppliers: { read: "catalog:read", write: "catalog:write",
     cols: { name: "text!", contact: "text", phone: "text", location_id: "text", notes: "text" } },
-  tenders: { read: "tenders:read", write: "tenders:write",
+  tenders: { read: "tenders:read", write: "tenders:write", org: true,
     cols: { source: "text", external_id: "text", title: "text!", buyer: "text", country: "text", description: "text", type: "text", method: "text", published: "date", deadline: "date", url: "text", status: "text", notes: "text", value: "number", currency: "text" } },
-  tender_searches: { read: "tenders:read", write: "tenders:write",
+  tender_searches: { read: "tenders:read", write: "tenders:write", org: true,
     cols: { name: "text!", keywords: "text", country: "text", source: "text" } },
   rates: { read: "catalog:read", write: "catalog:write",
     cols: { material: "text!", supplier: "text", location_id: "text!", price: "number!", note: "text" } },

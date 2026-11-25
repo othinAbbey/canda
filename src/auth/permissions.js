@@ -21,6 +21,8 @@ export const PERMISSIONS = [
   { key: "tenders:read", group: "Tenders", label: "Search tenders, see the pipeline and tasks" },
   { key: "tenders:write", group: "Tenders", label: "Save and edit tenders in the pipeline" },
   { key: "tenders:assign", group: "Tenders", label: "Assign tender tasks to project managers" },
+  { key: "market:read", group: "Subcontracts", label: "See the shared subcontracts marketplace and contact other companies" },
+  { key: "market:post", group: "Subcontracts", label: "Post subcontracts and availability for the company; apply and answer applications" },
   { key: "audit:read", group: "Oversight", label: "See the audit trail" },
   { key: "messages:read", group: "Oversight", label: "Read and triage website messages" },
   { key: "messages:manage", group: "Oversight", label: "Delete website messages" },
@@ -32,7 +34,7 @@ export const PERMISSIONS = [
 export const ALL_PERMISSIONS = PERMISSIONS.map((p) => p.key).sort();
 export const ADMIN_ONLY = new Set(PERMISSIONS.filter((p) => p.adminOnly).map((p) => p.key));
 
-const CUSTOMER = ["catalog:read", "catalog:propose", "boq:use", "billing:read"];
+const CUSTOMER = ["catalog:read", "catalog:propose", "boq:use", "billing:read", "market:read"];
 const STAFF_READ = [...CUSTOMER, "projects:read", "files:read", "tenders:read"];
 
 export const BUILT_IN_ROLES = {
@@ -40,16 +42,24 @@ export const BUILT_IN_ROLES = {
   general_pm: {
     name: "General Project Manager",
     description: "Oversees all projects and tenders. Assigns tender tasks and is copied on them.",
-    permissions: [...STAFF_READ, "projects:write", "files:write", "tenders:write", "tenders:assign", "audit:read", "messages:read"],
+    permissions: [...STAFF_READ, "projects:write", "files:write", "tenders:write", "tenders:assign", "audit:read", "messages:read", "market:post"],
   },
   manager: {
     name: "Project Manager",
     description: "Runs projects and receives tender tasks.",
-    permissions: [...STAFF_READ, "projects:write", "files:write", "tenders:write", "audit:read", "messages:read"],
+    permissions: [...STAFF_READ, "projects:write", "files:write", "tenders:write", "audit:read", "messages:read", "market:post"],
   },
   viewer: { name: "Viewer", description: "Read-only access to project data and tenders.", permissions: STAFF_READ },
   user: { name: "Customer", description: "Material catalog, calculator and own BOQ extraction.", permissions: CUSTOMER },
 };
+
+/**
+ * Rights added after release, given ONCE to roles that already exist in a database (roles.ensureBuiltIns).
+ * Never edit a released grant: add a new one with a new id.
+ */
+export const ROLE_GRANTS = [
+  { id: "2026-11-subcontracts", roles: { general_pm: ["market:read", "market:post"], manager: ["market:read", "market:post"], viewer: ["market:read"], user: ["market:read"] } },
+];
 
 /** can(user, "catalog:write"). `user.permissions` is attached when the request is authenticated. */
 export const can = (subject, permission) => {

@@ -53,3 +53,52 @@ describe("project organization isolation", () => {
     assert.equal(audit.body.items.some((r) => r.project === projectA.id), false);
   });
 });
+
+describe("project organization isolation: every project area", () => {
+  let t, a, b, project, task, taskB, projectB;
+  before(async () => {
+    t = await startTestApp();
+    a = await t.account("owner@alpha.test");
+    b = await t.account("owner@beta.test");
+    project = (await t.call("POST", "/api/projects", { name: "Alpha HQ", budget: 1000 }, a)).body;
+    task = (await t.call("POST", "/api/tasks", { project: project.id, title: "Alpha slab" }, a)).body;
+    for (const [path, body] of [["costs", { item: "Cement", amount: 5 }], ["logs", { work: "Digging" }], ["issues", { title: "Clash" }]])
+      assert.equal((await t.call("POST", `/api/${path}`, { project: project.id, ...body }, a)).status, 201);
+    projectB = (await t.call("POST", "/api/projects", { name: "Beta Shop" }, b)).body;
+    taskB = (await t.call("POST", "/api/tasks", { project: projectB.id, title: "Beta roof" }, b)).body;
+  });
+  after(() => t.close());
+
+  it("each company sees only its own costs, logs, issues and portfolio", async () => {
+    for (const path of ["costs", "logs", "issues", "tasks", "projects"]) {
+      const rows = (await t.call("GET", `/api/${path}`, null, b)).body;
+      assert.ok(rows.every((r) => (r.project ?? r.id) !== project.id), path);
+    }
+    const data = (await t.call("GET", "/api/data", null, b)).body;
+    assert.deepEqual(data.projects.map((p) => p.name), ["Beta Shop"]);
+    assert.equal(data.costs.length + data.logs.length + data.issues.length, 0);
+    const portfolio = (await t.call("GET", "/api/summary", null, b)).body;
+    if (portfolio?.projects) assert.deepEqual(portfolio.projects.map((p) => p.name), ["Beta Shop"]);
+    const exported = (await t.call("GET", "/api/export", null, b)).body;
+    assert.deepEqual(exported.projects.map((p) => p.name), ["Beta Shop"]);
+  });
+
+  it("cannot read, change or delete another company's project records by id", async () => {
+    const cost = (await t.call("GET", "/api/costs", null, a)).body[0];
+    assert.equal((await t.call("GET", `/api/costs/${cost.id}`, null, b)).status, 404);
+    assert.equal((await t.call("PATCH", `/api/costs/${cost.id}`, { amount: 1 }, b)).status, 404);
+    assert.equal((await t.call("DELETE", `/api/costs/${cost.id}`, null, b)).status, 404);
+    assert.equal((await t.call("PATCH", `/api/tasks/${task.id}`, { title: "hijacked" }, b)).status, 404);
+    assert.equal((await t.call("PATCH", `/api/tasks/${taskB.id}`, { project: project.id }, b)).status, 404);   // cannot move own task into another company's project
+    assert.equal((await t.call("GET", `/api/costs/${cost.id}`, null, a)).body.amount, 5);
+  });
+
+  it("cannot link to, nest under or upload into another company's project", async () => {
+    assert.equal((await t.call("PATCH", `/api/tasks/${taskB.id}`, { parent: task.id }, b)).status, 400);
+    const link = await t.call("POST", "/api/task_links", { predecessor: task.id, successor: taskB.id }, b);
+    assert.ok([400, 404].includes(link.status), `link status ${link.status}`);
+    const up = await t.call("POST", `/api/files?project=${project.id}&name=x.txt`, undefined, b, Buffer.from("x"));
+    assert.ok([400, 404].includes(up.status));
+    assert.equal((await t.call("POST", `/api/projects/${project.id}/schedule/apply`, {}, b)).status, 404);
+  });
+});

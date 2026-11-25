@@ -28,7 +28,7 @@ export function createBoq({ boq, client: rawClient, billing, audit, config }) {
 
   async function mine(actor, id) {
     const j = await boq.get(id);
-    if (!j || (j.user_id !== actor.id && !can(actor.role, "boq:all"))) throw notFound("job not found");    // do not reveal other people's ids
+    if (!j || (j.user_id !== actor.id && !can(actor, "boq:all"))) throw notFound("job not found");    // do not reveal other people's ids
     return j;
   }
 
@@ -50,14 +50,27 @@ export function createBoq({ boq, client: rawClient, billing, audit, config }) {
     catch { return job; }                                            // retried on the next download
   }
 
+  /** Hands the stored PDF to the BOQ service. On failure the job is kept, marked failed with the reason. */
+  async function start(id, bytes, name, force) {
+    try {
+      const remote = await client.createJob(bytes, name, { force });
+      return present(await boq.update(id, { ...fromRemote(remote), remote_job_id: remote.id }, now()));
+    } catch (e) {
+      const status = e instanceof HttpError ? e.status : 502;
+      const message = e instanceof HttpError || e instanceof BoqError ? e.message : "Could not start the BOQ job.";
+      await boq.update(id, { status: "failed", stage: "failed", error: message }, now());
+      throw new HttpError(status, message);
+    }
+  }
+
   return {
     config: () => asHttp(client.config()),
     rates: () => asHttp(client.rates()),
     async saveRates(actor, rows) { const r = await asHttp(client.saveRates(rows)); await audit.log(actor, { action: "update", entity: "boq_rates", summary: `saved ${r.saved ?? rows.length} rate rows` }); return r; },
 
     async list(actor, { all = false } = {}) {
-      const rows = await boq.list(all && can(actor.role, "boq:all") ? null : actor.id);
-      return rows.map(present);
+      const rows = await boq.list(all && can(actor, "boq:all") ? null : actor.id);
+      return rows.map((j) => ({ ...present(j), result: null, usage: null }));     // lists stay light: open a job for its full result
     },
     async get(actor, id) { return present(await sync(await mine(actor, id))); },
 
@@ -71,15 +84,17 @@ export function createBoq({ boq, client: rawClient, billing, audit, config }) {
       await boq.insert({ id, userId: actor.id, filename: name, sha256: crypto.createHash("sha256").update(bytes).digest("hex"), pdf: bytes, at: now() });
       await billing.record(actor, "boq_job");
       await audit.log(actor, { action: "create", entity: "boq_jobs", id, summary: name });
-      try {
-        const remote = await client.createJob(bytes, name, { force: !!force });
-        return present(await boq.update(id, { ...fromRemote(remote), remote_job_id: remote.id }, now()));
-      } catch (e) {
-        const status = e instanceof HttpError ? e.status : 502;
-        const message = e instanceof HttpError || e instanceof BoqError ? e.message : "Could not start the BOQ job.";
-        await boq.update(id, { status: "failed", stage: "failed", error: message }, now());
-        throw new HttpError(status, message);
-      }
+      return start(id, bytes, name, !!force);
+    },
+
+    /** Try a failed job again using the PDF kept in our database; asks the AI afresh (never the cache). Not counted against the plan again. */
+    async retry(actor, id) {
+      const job = await mine(actor, id);
+      if (job.status !== "failed") throw new HttpError(409, "only a failed job can be retried");
+      const row = await boq.pdf(id);
+      await boq.update(id, { status: "queued", stage: "queued", error: null, result: null, usage: null, cost_usd: null, remote_job_id: null }, now());
+      await audit.log(actor, { action: "retry", entity: "boq_jobs", id, summary: job.filename });
+      return start(id, Buffer.from(row.pdf), job.filename, true);
     },
 
     async rebuild(actor, id) {
@@ -102,6 +117,8 @@ export function createBoq({ boq, client: rawClient, billing, audit, config }) {
     async remove(actor, id) {
       const job = await mine(actor, id);
       await boq.remove(id);
+      // Also remove the copy the BOQ service keeps. Best effort: if it is down or still busy, our record is gone either way.
+      if (job.remote_job_id) await client.deleteJob(job.remote_job_id).catch(() => {});
       await audit.log(actor, { action: "delete", entity: "boq_jobs", id, summary: job.filename });
     },
   };

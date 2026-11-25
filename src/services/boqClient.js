@@ -30,6 +30,7 @@ export function createBoqClient({ url, key }, fetchImpl = fetch) {
       return call("POST", `/jobs${force ? "?force=true" : ""}`, { form, timeout: 300_000 });
     },
     job: (id) => call("GET", `/jobs/${encodeURIComponent(id)}`),
+    deleteJob: (id) => call("DELETE", `/jobs/${encodeURIComponent(id)}`),
     rebuild: (id) => call("POST", `/jobs/${encodeURIComponent(id)}/rebuild`, { timeout: 120_000 }),
     xlsx: (id) => call("GET", `/jobs/${encodeURIComponent(id)}/boq.xlsx`, { binary: true }),
   };

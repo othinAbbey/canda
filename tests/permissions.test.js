@@ -1,16 +1,24 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { ALL_PERMISSIONS, can, permissionsOf } from "../src/auth/permissions.js";
+import { ADMIN_ONLY, ALL_PERMISSIONS, BUILT_IN_ROLES, can } from "../src/auth/permissions.js";
 import { startTestApp } from "./support/testApp.js";
+
+const as = (code) => ({ permissions: code === "admin" ? ALL_PERMISSIONS : BUILT_IN_ROLES[code].permissions });
 
 describe("permission matrix", () => {
   it("admin has every right; others only their own", () => {
-    for (const p of ALL_PERMISSIONS) assert.ok(can("admin", p), p);
-    assert.ok(can("user", "catalog:read") && can("user", "catalog:propose") && can("user", "boq:use"));
-    assert.ok(!can("user", "catalog:write") && !can("user", "projects:read") && !can("user", "proposals:review"));
-    assert.ok(can("viewer", "projects:read") && !can("viewer", "projects:write"));
-    assert.ok(can("manager", "projects:write") && can("manager", "audit:read") && !can("manager", "catalog:write") && !can("manager", "users:manage"));
-    assert.deepEqual(permissionsOf("nobody"), []);
+    for (const p of ALL_PERMISSIONS) assert.ok(can(as("admin"), p), p);
+    assert.ok(can({ permissions: ["*"] }, "anything"));
+    const user = as("user"), viewer = as("viewer"), manager = as("manager"), gpm = as("general_pm");
+    assert.ok(can(user, "catalog:read") && can(user, "catalog:propose") && can(user, "boq:use"));
+    assert.ok(!can(user, "catalog:write") && !can(user, "projects:read") && !can(user, "proposals:review") && !can(user, "tenders:read"));
+    assert.ok(can(viewer, "projects:read") && can(viewer, "tenders:read") && !can(viewer, "projects:write") && !can(viewer, "tenders:write"));
+    assert.ok(can(manager, "projects:write") && can(manager, "tenders:write") && can(manager, "audit:read") && !can(manager, "catalog:write") && !can(manager, "tenders:assign"));
+    assert.ok(can(gpm, "tenders:assign") && can(gpm, "projects:write") && !can(gpm, "users:manage"));
+    assert.equal(can(null, "x"), false); assert.equal(can({}, "x"), false);
+  });
+  it("only the administrator can hold the rights that manage people and roles", () => {
+    for (const code of Object.keys(BUILT_IN_ROLES).filter((c) => c !== "admin")) for (const p of ADMIN_ONLY) assert.ok(!as(code).permissions.includes(p), `${code} ${p}`);
   });
 });
 

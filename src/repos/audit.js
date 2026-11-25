@@ -3,11 +3,11 @@ import { parseJson, toJson } from "../json.js";
 
 /** Append-only. There is deliberately no update or delete here. */
 export const auditRepo = (db) => ({
-  insert: (e) => db.query("INSERT INTO audit (id, at, user_id, user_email, action, entity, entity_id, project, summary, changes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-    [newId(), now(), e.userId, e.userEmail, e.action, e.entity, e.entityId, e.project, String(e.summary || "").slice(0, 200), toJson(e.changes)]),
+  insert: (e) => db.query("INSERT INTO audit (id, at, user_id, user_email, action, entity, entity_id, project, summary, changes, organization_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+    [newId(), now(), e.userId, e.userEmail, e.action, e.entity, e.entityId, e.project, String(e.summary || "").slice(0, 200), toJson(e.changes), e.organizationId]),
 
-  async list({ project, entity, action, user, before, limit = 50 } = {}) {
-    const where = [], params = [];
+  async list({ organizationId, project, entity, action, user, before, limit = 50 } = {}) {
+    const where = ["organization_id = $1"], params = [organizationId];
     const add = (sql, v) => { params.push(v); where.push(sql.replace("?", `$${params.length}`)); };
     if (project) add("project = ?", project);
     if (entity) add("entity = ?", entity);

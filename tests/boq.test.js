@@ -23,6 +23,8 @@ function fakeBoq() {
       if (++j.polls >= 2) Object.assign(j, { status: "done", stage: "done", result: done, usage: { input_tokens: 100, output_tokens: 50 }, cost_usd: 0.01, cached: false });
       return { ...j };
     },
+    deleted: [],
+    async deleteJob(id) { if (!jobs.has(id)) throw new BoqError(404, "gone"); this.deleted.push(id); jobs.delete(id); },
     rebuild: async (id) => ({ ...jobs.get(id), result: { ...done, totals: { total: 999 } } }),
     xlsx: async (id) => { if (!jobs.has(id)) throw new BoqError(404, "gone"); return Buffer.from("XLSX-BYTES"); },
   };
@@ -97,10 +99,32 @@ describe("BOQ jobs belong to the user who uploaded them", () => {
     const after = (await t.call("GET", `/api/boq/jobs/${j.id}`, null, jane)).body;
     assert.equal(after.status, "failed"); assert.match(after.error, /lost this job/);
   });
-  it("deletes a job and its stored files", async () => {
+  it("deleting a job removes the database row (PDF and Excel) and asks the BOQ service to delete its copy", async () => {
     const j = (await post("name=del.pdf", PDF)).body;
+    const remoteId = (await t.db.query("SELECT remote_job_id FROM boq_jobs WHERE id = $1", [j.id]))[0].remote_job_id;
     assert.equal((await t.call("DELETE", `/api/boq/jobs/${j.id}`, null, jane)).status, 200);
     assert.equal((await t.db.query("SELECT COUNT(*) AS n FROM boq_jobs WHERE id = $1", [j.id]))[0].n, 0);
+    assert.deepEqual(fake.deleted.slice(-1), [remoteId]);
+    assert.equal((await t.call("GET", `/api/boq/jobs/${j.id}`, null, jane)).status, 404);
+    assert.equal((await t.call("GET", "/api/boq/jobs", null, jane)).body.some((x) => x.id === j.id), false);
+  });
+  it("deleting still works when the BOQ service is down or has already forgotten the job", async () => {
+    const j = (await post("name=del2.pdf", PDF)).body;
+    fake.state.down = true;
+    assert.equal((await t.call("DELETE", `/api/boq/jobs/${j.id}`, null, jane)).status, 200);
+    fake.state.down = false;
+  });
+  it("a failed job can be retried from the PDF stored in the database", async () => {
+    fake.state.down = true;
+    const failed = (await post("name=retry.pdf", PDF).then((r) => (fake.state.down = false, r)));          // 503, a failed record remains
+    const job = (await t.call("GET", "/api/boq/jobs", null, jane)).body.find((x) => x.filename === "retry.pdf");
+    assert.equal(job.status, "failed");
+    assert.equal((await t.call("POST", `/api/boq/jobs/${job.id}/retry`, null, bob)).status, 404);          // not yours
+    const before = fake.calls.length;
+    const r = await t.call("POST", `/api/boq/jobs/${job.id}/retry`, null, jane);
+    assert.equal(r.status, 200); assert.equal(r.body.status, "reading"); assert.equal(r.body.error, null);
+    assert.deepEqual(fake.calls[before].pdf, PDF);                                                       // the stored PDF was sent again
+    assert.equal((await t.call("POST", `/api/boq/jobs/${job.id}/retry`, null, jane)).status, 409);        // only failed jobs
   });
   it("only admins touch the shared rate book; everyone can read the service status", async () => {
     assert.equal((await t.call("GET", "/api/boq/config", null, jane)).body.ai_provider, "gemini");

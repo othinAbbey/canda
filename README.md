@@ -23,17 +23,21 @@ The first account created through `POST /api/auth/register` becomes the admin. L
     src/domain/        pure logic with no I/O: calculator, health rules, field definitions
     src/auth/          permissions matrix (single source of truth for rights), passwords, tokens
     src/db/            the small database interface + PostgreSQL adapter + migration runner
-    tests/             `npm test` (84 tests); tests/support has the in-memory test database
+    tests/             `npm test` (132 tests); tests/support has the in-memory test database
+    src/tenders/       tender sources (World Bank today); add a provider file to add a source
     docs/API.md        the contract
 
 Rules that keep it maintainable: routes never touch SQL; services never touch HTTP; repos never hold business rules;
-rights are checked by permission name (`src/auth/permissions.js`), never by role name.
+rights are checked by permission name (`src/auth/permissions.js`), never by role name; roles themselves live in the database.
 
 ## Common changes
 
 - **New right or changed role:** edit `src/auth/permissions.js` and the table in `docs/API.md`.
 - **New simple table:** add a migration, add it to `src/domain/resources.js` (gets all five routes, validation and audit for free).
 - **New feature:** a repo (SQL), a service (rules), a route file, tests.
+- **New tender source:** write a provider like `src/tenders/worldbank.js` (`search({q, country, rows, offset})` returning `{total, items[]}`) and add it in `src/services/tenders.js`.
+- **Change what a role may do:** admins do it on the Roles & Access page; to add a brand-new right, add it to `src/auth/permissions.js` (the catalog) and check it in a route with `{ perm: "..." }`.
+- **Schedule rules:** `src/domain/schedule.js` is pure and has its own tests (`tests/schedule.test.js`); change rules there only.
 - **Turn on subscriptions later:** connect a payment provider in `services/billing.js` (`checkout`), set `ENFORCE_PLAN_LIMITS=true`.
 
 ## Testing note

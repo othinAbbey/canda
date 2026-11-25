@@ -13,9 +13,9 @@ const MIME = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg
 export function createFiles({ files, resources, audit, config }) {
   return {
     maxBytes: config.maxUploadMb * 1024 * 1024,
-    list: (project) => files.listMeta(project),
+    list: (actor, project) => files.listMeta(project, actor.organization_id),
     async upload(actor, { project, name, category, note, bytes }) {
-      if (!project || !(await resources.get("projects", project).catch(() => null))) throw new ValidationError("choose an existing project");
+      if (!project || !(await resources.get("projects", project, actor.organization_id).catch(() => null))) throw new ValidationError("choose an existing project");
       const clean = path.basename(String(name || "file").replace(/\\/g, "/")).replace(/[\x00-\x1f]/g, "").slice(0, 150) || "file";
       const ext = path.extname(clean).slice(1).toLowerCase();
       if (!ALLOWED.includes(ext)) throw new ValidationError(`.${ext || "?"} files are not allowed (allowed: ${ALLOWED.join(", ")})`);
@@ -24,11 +24,11 @@ export function createFiles({ files, resources, audit, config }) {
         sha256: crypto.createHash("sha256").update(bytes).digest("hex"), category: String(category || "").slice(0, 60) || null, note: String(note || "").slice(0, 500) || null, uploadedBy: actor.id, data: bytes };
       await files.insert(f);
       await audit.log(actor, { action: "upload", entity: "files", id: f.id, project, summary: `${f.name} (${f.size} bytes)` });
-      return files.meta(f.id);
+      return files.meta(f.id, actor.organization_id);
     },
-    async download(id) { const f = await files.data(id); if (!f) throw notFound("file not found"); return f; },
+    async download(actor, id) { const f = await files.data(id, actor.organization_id); if (!f) throw notFound("file not found"); return f; },
     async remove(actor, id) {
-      const f = await files.remove(id); if (!f) throw notFound("file not found");
+      const f = await files.remove(id, actor.organization_id); if (!f) throw notFound("file not found");
       await audit.log(actor, { action: "delete", entity: "files", id, project: f.project, summary: f.name });
     },
   };

@@ -5,12 +5,12 @@ import { seedIfEmpty } from "../../src/seed.js";
 import { createSqliteDb } from "./sqliteDb.js";
 
 /** A running API on a random port with an in-memory database. `boq` stubs the BOQ service. */
-export async function startTestApp({ env = {}, seed = true, boq } = {}) {
+export async function startTestApp({ env = {}, seed = true, boq, tenders } = {}) {
   const db = createSqliteDb();
   await migrate(db);
   if (seed) await seedIfEmpty(db);
   const config = loadConfig({ TOKEN_SECRET: "test-secret", CORS_ORIGINS: "http://localhost:3000", ...env });
-  const app = await createApp({ db, config, boqClient: boq });
+  const app = await createApp({ db, config, boqClient: boq, tenderProviders: tenders });
   await new Promise((r) => app.server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${app.server.address().port}`;
 
@@ -23,7 +23,7 @@ export async function startTestApp({ env = {}, seed = true, boq } = {}) {
   };
   /** Sign up (first call = admin) or have an admin create the account, then return its token. */
   const account = async (email, role, adminToken) => {
-    if (!adminToken) return (await call("POST", "/api/auth/register", { email, password: "password123", name: email })).body.token;
+    if (!adminToken) return (await call("POST", "/api/auth/register", { email, password: "password123", name: email, organization_name: `${email} company` })).body.token;
     await call("POST", "/api/users", { email, password: "password123", role }, adminToken);
     return (await call("POST", "/api/auth/login", { email, password: "password123" })).body.token;
   };

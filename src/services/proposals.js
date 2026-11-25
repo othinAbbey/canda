@@ -39,9 +39,9 @@ export function createProposals({ db, catalog, audit }) {
       await validate(kind, payload);
       const proposal = await repo.insert(kind, payload, actor.id);
       await audit.log(actor, { action: "propose", entity: "proposals", id: proposal.id, summary: `${kind}: ${payload.name || payload.district || ""}` });
-      return can(actor.role, "proposals:review") ? this.approve(actor, proposal.id, "auto-approved: submitted by an admin") : proposal;
+      return can(actor, "proposals:review") ? this.approve(actor, proposal.id, "auto-approved: submitted by an admin") : proposal;
     },
-    list: (actor, { status } = {}) => repo.list({ status, submittedBy: can(actor.role, "proposals:review") ? undefined : actor.id }),
+    list: (actor, { status } = {}) => repo.list({ status, submittedBy: can(actor, "proposals:review") ? undefined : actor.id }),
     pendingCount: () => repo.countPending(),
 
     async approve(admin, id, note) {

@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import { HttpError, ValidationError, notFound } from "../errors.js";
 import { newId, now } from "../ids.js";
-import { permissionsOf, ROLES } from "../auth/permissions.js";
 import { hashPassword, sha256, verifyPassword } from "../auth/passwords.js";
 import { signToken, verifyToken } from "../auth/tokens.js";
+import { organizationsRepo } from "../repos/organizations.js";
+import { usersRepo } from "../repos/users.js";
+import { cleanOrgName } from "./organizations.js";
 
 const EMAIL = /^\S+@\S+\.\S+$/;
 const normEmail = (e) => String(e || "").trim().toLowerCase();
@@ -13,37 +15,57 @@ function checkCredentials(email, password) {
   if (String(password).length < 8) throw new ValidationError("password must be at least 8 characters");
 }
 
-/** Accounts: sign-up, sign-in, password reset, roles. Knows nothing about HTTP. */
-export function createAccounts({ users, audit, config, secret, limiter }) {
-  const pub = (u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, permissions: permissionsOf(u.role) });
+/**
+ * Accounts: sign-up, sign-in, password reset, roles. Knows nothing about HTTP.
+ *
+ * Every user belongs to exactly one organization (one company's workspace). Signing up always creates a
+ * brand-new organization with the signing-up person as its admin -- there is no single "first user of the
+ * whole system" any more (that only made sense before this was a multi-tenant product). An existing admin
+ * adding a teammate always adds them to their OWN organization; a target user fetched for any admin action
+ * (reset code, role change, disable, delete) is checked against the acting admin's organization first, so one
+ * company's admin can never see or touch another company's accounts -- see sameOrgOrNotFound below.
+ */
+export function createAccounts({ db, users, roles, audit, config, secret, limiter }) {
+  const pub = (u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, role_name: roles.nameOf(u.role), status: u.status, organization_id: u.organization_id, permissions: roles.permissionsOf(u.role) });
+  const checkRole = (role) => { if (!roles.exists(role)) throw new ValidationError(`role must be one of: ${roles.codes().join(", ")}`); };
   const session = (u) => ({ token: signToken({ uid: u.id, tv: u.token_version }, secret, config.tokenHours), user: pub(u) });
   const throttle = (ip) => { if (limiter.blocked(`auth:${ip}`)) throw new HttpError(429, "too many attempts, try again in a few minutes"); };
-  const create = (email, name, role, password) => users.create({ id: newId(), email, name: String(name || "").trim() || email, role, passwordHash: hashPassword(password), created: now() });
+  const create = (email, name, role, password, organizationId) => users.create({ id: newId(), email, name: String(name || "").trim() || email, role, passwordHash: hashPassword(password), organizationId, created: now() });
   const lastAdminGuard = async (target, what) => {
-    if (target.role === "admin" && target.status === "active" && (await users.countActiveAdmins()) <= 1) throw new ValidationError(`you cannot ${what} the only admin`);
+    if (target.role === "admin" && target.status === "active" && (await users.countActiveAdmins(target.organization_id)) <= 1) throw new ValidationError(`you cannot ${what} the only admin`);
   };
+  // Fetches a user by id and refuses (as if it does not exist) anyone outside the acting admin's own company.
+  // 404 rather than 403 on purpose: an admin should not be able to tell that an id belongs to another tenant at all.
+  const sameOrgOrNotFound = (admin, target) => { if (!target || target.organization_id !== admin.organization_id) throw notFound("user not found"); return target; };
 
   return {
     pub,
 
-    /** Turns a "Bearer <token>" header into the signed-in user, or throws 401. */
+    /** Turns a session token into the signed-in user, or throws 401. */
     async authenticate(header) {
       const m = /^Bearer (.+)$/.exec(header || "");
       const p = m && verifyToken(m[1], secret);
       const u = p && (await users.byId(p.uid));
       if (!u || u.status !== "active" || p.tv !== u.token_version) throw new HttpError(401, "please sign in");
-      return u;
+      await roles.fresh();
+      return { ...u, permissions: roles.permissionsOf(u.role) };      // the rights travel with the user for this request
     },
-    setupRequired: async () => (await users.count()) === 0,
 
-    async register({ email, name, password }, ip) {
+    /** Always starts a brand-new company workspace, with this person as its admin. Organization and user are
+     *  created in one transaction, so a failure partway through can never leave an organization with nobody
+     *  able to sign into it. */
+    async register({ email, name, password, organization_name }, ip) {
       throttle(ip);
+      if (!config.allowSignup) throw new HttpError(403, "sign-up is closed; ask an admin to create your account");
       email = normEmail(email); checkCredentials(email, password);
-      const first = (await users.count()) === 0;
-      if (!first && !config.allowSignup) throw new HttpError(403, "sign-up is closed; ask an admin to create your account");
+      const orgName = cleanOrgName(organization_name);
       if (await users.byEmail(email)) throw new HttpError(409, "that email already has an account");
-      const u = await create(email, name, first ? "admin" : "user", String(password));
-      await audit.log(u, { action: "register", entity: "users", id: u.id, summary: first ? `first admin ${u.email}` : `new account ${u.email}` });
+      const { org, user: u } = await db.tx(async (t) => {
+        const org = await organizationsRepo(t).create({ id: newId(), name: orgName, created: now() });
+        const user = await usersRepo(t).create({ id: newId(), email, name: String(name || "").trim() || email, role: "admin", passwordHash: hashPassword(password), organizationId: org.id, created: now() });
+        return { org, user };
+      });
+      await audit.log(u, { action: "register", entity: "users", id: u.id, summary: `new company "${org.name}", admin ${u.email}` });
       return session(u);
     },
 
@@ -84,33 +106,33 @@ export function createAccounts({ users, audit, config, secret, limiter }) {
       return session(fresh);                      // every older token (other devices) stops working
     },
 
-    // ---- admin ----
-    list: () => users.list(),
+    // ---- admin (always scoped to the acting admin's own organization) ----
+    async list(admin) { return (await users.list(admin.organization_id)).map((u) => ({ ...u, role_name: roles.nameOf(u.role) })); },
     async createUser(admin, { email, name, password, role }) {
       email = normEmail(email); checkCredentials(email, password);
-      if (!ROLES.includes(role)) throw new ValidationError(`role must be one of ${ROLES.join(", ")}`);
+      checkRole(role);
       if (await users.byEmail(email)) throw new HttpError(409, "that email already has an account");
-      const u = await create(email, name, role, String(password));
+      const u = await create(email, name, role, String(password), admin.organization_id);
       await audit.log(admin, { action: "create", entity: "users", id: u.id, summary: `${u.email} (${u.role})` });
       return pub(u);
     },
     async issueResetCode(admin, id) {
-      const target = await users.byId(id); if (!target) throw notFound("user not found");
+      const target = sameOrgOrNotFound(admin, await users.byId(id));
       const raw = crypto.randomBytes(5).toString("hex").toUpperCase(), expires = new Date(Date.now() + config.resetMinutes * 60_000).toISOString();
       await users.replaceReset(id, sha256(raw), expires);
       await audit.log(admin, { action: "reset_code_issued", entity: "users", id, summary: `reset code issued for ${target.email}` });
       return { email: target.email, code: `${raw.slice(0, 5)}-${raw.slice(5)}`, expires };
     },
     async setRole(admin, id, role) {
-      const target = await users.byId(id); if (!target) throw notFound("user not found");
-      if (!ROLES.includes(role)) throw new ValidationError(`role must be one of ${ROLES.join(", ")}`);
+      const target = sameOrgOrNotFound(admin, await users.byId(id));
+      checkRole(role);
       if (role !== "admin") await lastAdminGuard(target, "demote");
       const u = await users.setRole(id, role);
       await audit.log(admin, { action: "update", entity: "users", id, summary: target.email, changes: { role: [target.role, role] } });
       return pub(u);
     },
     async setStatus(admin, id, status) {
-      const target = await users.byId(id); if (!target) throw notFound("user not found");
+      const target = sameOrgOrNotFound(admin, await users.byId(id));
       if (!["active", "disabled"].includes(status)) throw new ValidationError("status must be active or disabled");
       if (status === "disabled") await lastAdminGuard(target, "disable");
       const u = await users.setStatus(id, status);                  // also signs the user out everywhere
@@ -118,7 +140,7 @@ export function createAccounts({ users, audit, config, secret, limiter }) {
       return pub(u);
     },
     async remove(admin, id) {
-      const target = await users.byId(id); if (!target) throw notFound("user not found");
+      const target = sameOrgOrNotFound(admin, await users.byId(id));
       if (id === admin.id) throw new ValidationError("you cannot delete your own account");
       await lastAdminGuard(target, "delete");
       await users.remove(id);

@@ -9,8 +9,8 @@ const daysBefore = (date, n) => new Date(ms(date) - n * DAY).toISOString().slice
 
 /** Everything a project manager wants on one page. SQL lives in repos/projectStats.js; the arithmetic is here. */
 export function createSummary({ resources, stats, audit, files }) {
-  async function project(id, today = new Date().toISOString().slice(0, 10)) {
-    const p = await resources.get("projects", id).catch(() => null);
+  async function project(actor, id, today = new Date().toISOString().slice(0, 10)) {
+    const p = await resources.get("projects", id, actor.organization_id).catch(() => null);
     if (!p) throw notFound();
 
     const tasks = { todo: 0, doing: 0, done: 0 };
@@ -50,10 +50,10 @@ export function createSummary({ resources, stats, audit, files }) {
     };
   }
 
-  async function portfolio(today) {
+  async function portfolio(actor, today) {
     const projects = [];
-    for (const { id } of await stats.projectIds()) {
-      const s = await project(id, today);
+    for (const { id } of await stats.projectIds(actor.organization_id)) {
+      const s = await project(actor, id, today);
       projects.push({ id, name: s.project.name, status: s.project.status, health: s.health, progress: s.schedule.progress_pct,
         budget: s.budget.budget, spent: s.budget.spent, overdue_tasks: s.tasks.overdue, open_issues: s.issues.open });
     }
@@ -63,6 +63,6 @@ export function createSummary({ resources, stats, audit, files }) {
   }
 
   /** All project tables in one call (what the project pages load). */
-  const data = async () => Object.fromEntries(await Promise.all(PROJECT_TABLES.map(async (t) => [t, await resources.list(t)])));
+  const data = async (actor) => Object.fromEntries(await Promise.all(PROJECT_TABLES.map(async (t) => [t, await resources.list(t, { organizationId: actor.organization_id })])));
   return { project, portfolio, data };
 }

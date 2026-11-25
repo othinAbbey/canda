@@ -17,25 +17,24 @@ the same `migrations/*.sql`, and passes the same `tests/*.test.js` against its H
 
 ## Roles and permissions
 
-Routes are protected by permission names, never by role names. `GET /api/me` returns the signed-in user's `permissions` list;
-clients should check that list instead of hard-coding roles. The mapping lives in `src/auth/permissions.js`.
+Routes are protected by **permission names**, never role names. `GET /api/me` returns the user's `permissions` list; clients check that list instead of hard-coding roles.
+Roles are rows in the `roles` table: an admin can create roles and choose their rights (`/api/roles`). The catalog of rights that exist, with labels, is in
+`src/auth/permissions.js` (`GET /api/permissions`). The built-in roles are created on first start and can be adjusted by an admin, except **Administrator**, which always has everything.
 
-| Permission | user | viewer | manager | admin | Allows |
-|---|:-:|:-:|:-:|:-:|---|
-| `catalog:read` | x | x | x | x | Read materials, suppliers, locations, rates; use the calculator |
-| `catalog:propose` | x | x | x | x | Suggest a material, supplier or location |
-| `boq:use` | x | x | x | x | Upload drawings and see **your own** BOQ jobs |
-| `billing:read` | x | x | x | x | See your plan and usage |
-| `projects:read`, `files:read` |  | x | x | x | Read project data and documents |
-| `projects:write`, `files:write` |  |  | x | x | Create, edit, delete project data and documents |
-| `audit:read`, `messages:read` |  |  | x | x | Audit trail, website inbox |
-| `catalog:write` |  |  |  | x | Edit the catalog directly |
-| `proposals:review` |  |  |  | x | Approve or reject suggestions |
-| `users:manage` |  |  |  | x | Create, disable, delete users; roles; reset codes |
-| `boq:all`, `boq:rates` |  |  |  | x | See everyone's BOQ jobs; edit the shared BOQ rate book |
-| `billing:manage`, `messages:manage` |  |  |  | x | Change a user's plan; delete messages |
+| Built-in role (code) | Starting rights |
+|---|---|
+| Administrator (`admin`) | everything, including `users:manage` and `roles:manage` (only this role can hold those two) |
+| General Project Manager (`general_pm`) | project work and documents, tenders incl. `tenders:assign`, audit, website inbox. **Copied in automatically on every tender task** |
+| Project Manager (`manager`) | project work and documents, tenders (read/write), audit, website inbox. **Receives tender tasks** |
+| Viewer (`viewer`) | read-only projects, documents and tenders, plus the customer rights |
+| Customer (`user`) | material catalog (read, suggest), calculator, own BOQ jobs, own plan |
 
 ## Endpoints
+
+### Roles and people
+`GET /roles`, `GET /permissions`, `POST /roles {name, description, permissions[]}`, `PATCH /roles/:code`, `DELETE /roles/:code` (`roles:manage`; `GET /roles` needs `users:manage`).
+Custom roles cannot hold admin-only rights; a role that people still have cannot be deleted; `admin` cannot be edited. Role changes apply on the next request.
+`GET /team?role=manager` lists active staff (used for the project-manager dropdown); without `role` it lists everyone with project access. Customers are never listed.
 
 ### Accounts
 | Method and path | Who | Purpose |
@@ -72,8 +71,27 @@ Same five routes. Read needs `catalog:read`, write needs `catalog:write`. Plus:
 
 ### BOQ jobs (owned by the uploader)
 `GET /boq/config`, `GET/PUT /boq/rates` (`boq:rates`), `GET /boq/jobs` (`?scope=all` for admins), `POST /boq/jobs?name=plan.pdf&force=false`
-(PDF bytes as the body), `GET /boq/jobs/:id`, `POST /boq/jobs/:id/rebuild`, `GET /boq/jobs/:id/boq.xlsx`, `GET /boq/jobs/:id/pdf`, `DELETE /boq/jobs/:id`.
+(PDF bytes as the body), `GET /boq/jobs/:id`, `POST /boq/jobs/:id/rebuild`, `GET /boq/jobs/:id/boq.xlsx`, `GET /boq/jobs/:id/pdf`, `POST /boq/jobs/:id/retry` (a failed job, re-sent from the PDF stored in the database), `DELETE /boq/jobs/:id`
+(removes the database row **and** asks the BOQ service to delete its copy). `GET /boq/jobs` returns light rows (no `result`); open a job for the full result.
 The PDF and the Excel result are stored in the database. Someone else's job answers `404`.
+
+### Schedule (MS Project style)
+Tasks carry `duration` (working days), `percent`, `milestone` (0/1), `parent` (a task with children is a summary task), `sort_order`, `baseline_start`, `baseline_end`;
+a project has a `workweek` (`mon-fri`, `mon-sat`, `all`). A task's `start` is a "start no earlier than" constraint; links can only push it later.
+`GET /projects/:id/schedule` returns every task with `scheduled_start/finish`, `float`, `critical`, `wbs`, `level`, `summary`, `percent_complete`, `finish_variance`
+(working days late against the baseline) and `differs` (saved dates differ from the schedule), plus `links`, `warnings` and `project {start, finish, working_days, critical_tasks}`.
+`POST /projects/:id/schedule/apply` writes the scheduled dates into the tasks. `POST /projects/:id/baseline` saves (or `{clear:true}` clears) the baseline.
+Dependencies: `POST /task_links {predecessor, successor, type: FS|SS|FF|SF, lag}`, `PATCH /task_links/:id`, `DELETE /task_links/:id`.
+Self-links, duplicates, loops and links across projects are refused. The maths is `src/domain/schedule.js` (pure, documented, fully tested): port it as is.
+
+### Tenders
+Pipeline rows carry `value` and `currency` (`UGX`, `USD`, `EUR`, `KES`, `TZS`). `GET /tenders/summary` totals the open pipeline (saved, interested, bidding, submitted), won and lost **per currency**; currencies are never converted or mixed.
+**Assigning work:** `POST /tenders/:id/tasks {title, assignee, due?, priority?, notes?, cc?[]}` (`tenders:assign`). `assignee` must be an active user with role `manager` (Project Manager).
+Every active `general_pm` user is copied in automatically (plus any `cc` ids that are active staff). `GET /tender_tasks?mine=1` returns tasks assigned to me **or** copied to me, each with `relation`;
+`?tender=ID` lists a tender's tasks. `PATCH /tender_tasks/:id`: the assignee may change `status`, `notes`, `due`; changing `title` or `priority`, or deleting, needs `tenders:assign`. Email is not sent.
+`GET /tenders/sources`, `GET /tenders/search?q=&country=&source=&page=` (live, cached 10 minutes; each item says if it is already in the pipeline),
+and the resources `tenders` (the pipeline: status saved, interested, bidding, submitted, won, lost, dismissed) and `tender_searches` (shared saved searches).
+Sources are providers in `src/tenders/`. Built in: World Bank procurement notices (free public API). Uganda's e-GP portal has no public API, so those are added by hand.
 
 ### Subscriptions (placeholders)
 `GET /billing` returns plan, limits, usage and available plans with `billing_enabled:false`; `POST /billing/checkout` returns `501`.

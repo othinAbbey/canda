@@ -7,9 +7,10 @@ import { ValidationError } from "../errors.js";
  */
 export const RESOURCES = {
   projects: { read: "projects:read", write: "projects:write", projectOf: "id",
-    cols: { name: "text!", client: "text", location: "text", budget: "number", start: "date", end: "date", manager: "text", status: "text" } },
+    cols: { name: "text!", client: "text", location: "text", budget: "number", start: "date", end: "date", manager: "text", status: "text", workweek: "text" } },
   tasks: { read: "projects:read", write: "projects:write", projectOf: "project",
-    cols: { project: "text!", title: "text!", assignee: "text", priority: "text", start: "date", due: "date", status: "text" } },
+    cols: { project: "text!", title: "text!", assignee: "text", priority: "text", start: "date", due: "date", status: "text",
+      duration: "number", percent: "number", milestone: "number", parent: "text", sort_order: "number", baseline_start: "date", baseline_end: "date" } },
   costs: { read: "projects:read", write: "projects:write", projectOf: "project",
     cols: { project: "text!", category: "text", item: "text!", amount: "number!", date: "date", supplier: "text" } },
   logs: { read: "projects:read", write: "projects:write", projectOf: "project",
@@ -22,6 +23,10 @@ export const RESOURCES = {
     cols: { name: "text!", category: "text", unit: "text!", size: "text", description: "text" } },
   suppliers: { read: "catalog:read", write: "catalog:write",
     cols: { name: "text!", contact: "text", phone: "text", location_id: "text", notes: "text" } },
+  tenders: { read: "tenders:read", write: "tenders:write",
+    cols: { source: "text", external_id: "text", title: "text!", buyer: "text", country: "text", description: "text", type: "text", method: "text", published: "date", deadline: "date", url: "text", status: "text", notes: "text", value: "number", currency: "text" } },
+  tender_searches: { read: "tenders:read", write: "tenders:write",
+    cols: { name: "text!", keywords: "text", country: "text", source: "text" } },
   rates: { read: "catalog:read", write: "catalog:write",
     cols: { material: "text!", supplier: "text", location_id: "text!", price: "number!", note: "text" } },
 };

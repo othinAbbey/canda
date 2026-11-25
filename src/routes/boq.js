@@ -12,6 +12,7 @@ export default function boqRoutes(r, { boq }, { config }) {
   // The drawing PDF is the request body; filename and options go in the query string.
   r.post("/api/boq/jobs", use, async (c) => created(await boq.create(c.user, { filename: c.query.name, force: c.query.force === "true", bytes: await c.raw(config.maxUploadMb * 1048576) })));
   r.get("/api/boq/jobs/:id", use, (c) => boq.get(c.user, c.params.id));
+  r.post("/api/boq/jobs/:id/retry", use, (c) => boq.retry(c.user, c.params.id));
   r.post("/api/boq/jobs/:id/rebuild", use, (c) => boq.rebuild(c.user, c.params.id));
   r.get("/api/boq/jobs/:id/boq.xlsx", use, async (c) => { const f = await boq.excel(c.user, c.params.id); return file({ name: f.name, type: XLSX, data: f.data }); });
   r.get("/api/boq/jobs/:id/pdf", use, async (c) => { const f = await boq.pdf(c.user, c.params.id); return file({ name: f.name, type: "application/pdf", data: f.data }); });

@@ -10,9 +10,10 @@ import { ensureSecret } from "../auth/secret.js";
 const DB_MESSAGE = { unique: "that already exists", fk: "a linked record (project, material, supplier or location) does not exist", check: "one of the values is not allowed (check status, priority or severity)", notnull: "a required field is missing" };
 
 /** Builds the HTTP server. Pass `services` in tests to stub outside systems (e.g. the BOQ client). */
-export async function createApp({ db, config, boqClient, services }) {
+export async function createApp({ db, config, boqClient, tenderProviders, services }) {
   const secret = await ensureSecret(db, config);
-  const svc = services || createServices({ db, config, secret, boqClient });
+  const svc = services || createServices({ db, config, secret, boqClient, tenderProviders });
+  await svc.roles.ensureBuiltIns();
   const router = new Router();
   registerRoutes(router, svc, { config, db });
 
@@ -36,7 +37,7 @@ export async function createApp({ db, config, boqClient, services }) {
       let user = null;
       if (!route.opts.public) {
         user = await svc.accounts.authenticate(req.headers.authorization);
-        if (route.opts.perm && !can(user.role, route.opts.perm)) throw new HttpError(403, "you do not have permission for that");
+        if (route.opts.perm && !can(user, route.opts.perm)) throw new HttpError(403, "you do not have permission for that");
       }
       const out = await route.handler({
         req, user, params, query: Object.fromEntries(url.searchParams), ip: req.socket.remoteAddress,

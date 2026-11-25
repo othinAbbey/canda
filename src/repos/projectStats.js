@@ -11,5 +11,5 @@ export const projectStatsRepo = (db) => ({
   openIssues: (p) => db.query("SELECT severity, type, due FROM issues WHERE project = $1 AND status <> 'closed'", [p]),
   files: (p) => one(db, "SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM files WHERE project = $1", [p]),
   upcoming: (p) => db.query("SELECT id, title, assignee, due, priority, status FROM tasks WHERE project = $1 AND status <> 'done' ORDER BY CASE WHEN due IS NULL THEN 1 ELSE 0 END, due, id LIMIT 6", [p]),
-  projectIds: () => db.query("SELECT id FROM projects ORDER BY id"),
+  projectIds: (organizationId) => db.query("SELECT id FROM projects WHERE organization_id = $1 ORDER BY id", [organizationId]),
 });

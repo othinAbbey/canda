@@ -28,7 +28,19 @@ export async function createPgDb(connectionString, { max = 10, ssl = "auto" } = 
   pg.types.setTypeParser(1184, (v) => new Date(v).toISOString()); // timestamptz -> ISO string
   const url = new URL(connectionString);
   for (const k of ["sslmode", "ssl", "sslrootcert", "sslcert", "sslkey"]) url.searchParams.delete(k);  // these would override the ssl option below
-  const pool = new pg.Pool({ connectionString: url.toString(), max, ssl: sslOption(connectionString, ssl) });
+  let sslOpt = sslOption(connectionString, ssl);
+  let pool = new pg.Pool({ connectionString: url.toString(), max, ssl: sslOpt });
+  try { await pool.query("SELECT 1"); }
+  catch (e) {
+    // The server insists on encryption (e.g. PGSSL=false copied to a hosted database): retry once with SSL on.
+    if (sslOpt || !(e.code === "28000" || /ssl|tls|encrypt/i.test(e.message))) throw e;
+    await pool.end().catch(() => {});
+    console.warn("database requires SSL; reconnecting with SSL on (remove PGSSL=false to skip this retry)");
+    sslOpt = { rejectUnauthorized: false };
+    pool = new pg.Pool({ connectionString: url.toString(), max, ssl: sslOpt });
+    await pool.query("SELECT 1");
+  }
+  console.log(`database: connected to ${url.hostname} (ssl ${sslOpt ? "on" : "off"})`);
   return {
     ...api(pool),
     async tx(fn) {

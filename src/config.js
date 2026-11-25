@@ -6,8 +6,12 @@ const list = (v, d) => (v === undefined ? d : String(v).split(",").map((s) => s.
 export function loadConfig(env = process.env) {
   return {
     databaseUrl: env.DATABASE_URL || "",
+    // "true" = always encrypt, "false" = never; unset = encrypt unless the database is on this machine or on
+    // Render's private network (internal hostnames like dpg-xxxx-a have no dot). Hosted databases require SSL.
+    dbSsl: env.PGSSL === undefined || env.PGSSL === "" ? "auto" : bool(env.PGSSL, false),
     port: num(env.PORT, 8100),
-    host: env.HOST || "127.0.0.1",
+    // Render (and most hosts) only route traffic to a server listening on all interfaces.
+    host: env.HOST || (env.RENDER ? "0.0.0.0" : "127.0.0.1"),
     corsOrigins: list(env.CORS_ORIGINS, ["http://localhost:3000"]),
     tokenSecret: env.TOKEN_SECRET || "",
     tokenHours: num(env.TOKEN_HOURS, 12),

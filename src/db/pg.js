@@ -11,13 +11,24 @@ function api(client) {
   };
 }
 
-export async function createPgDb(connectionString, { max = 10 } = {}) {
+/** Decide whether to encrypt. Hosted providers (Render, Neon, Supabase ...) refuse plain connections from outside. */
+export function sslOption(connectionString, ssl = "auto") {
+  if (ssl === "auto") {
+    const host = new URL(connectionString).hostname;
+    ssl = host.includes(".") && !["127.0.0.1", "localhost"].includes(host);
+  }
+  return ssl ? { rejectUnauthorized: false } : false;              // encrypted; providers often use certs Node can't verify
+}
+
+export async function createPgDb(connectionString, { max = 10, ssl = "auto" } = {}) {
   const { default: pg } = await import("pg");                    // loaded here so tests do not need the package
   pg.types.setTypeParser(20, Number);                             // bigint
   pg.types.setTypeParser(1700, Number);                           // numeric
   pg.types.setTypeParser(1082, (v) => v);                         // date -> "YYYY-MM-DD"
   pg.types.setTypeParser(1184, (v) => new Date(v).toISOString()); // timestamptz -> ISO string
-  const pool = new pg.Pool({ connectionString, max });
+  const url = new URL(connectionString);
+  for (const k of ["sslmode", "ssl", "sslrootcert", "sslcert", "sslkey"]) url.searchParams.delete(k);  // these would override the ssl option below
+  const pool = new pg.Pool({ connectionString: url.toString(), max, ssl: sslOption(connectionString, ssl) });
   return {
     ...api(pool),
     async tx(fn) {

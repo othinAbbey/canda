@@ -12,7 +12,7 @@ export function loadConfig(env = process.env) {
     port: num(env.PORT, 8100),
     // Render (and most hosts) only route traffic to a server listening on all interfaces.
     host: env.HOST || (env.RENDER ? "0.0.0.0" : "127.0.0.1"),
-    corsOrigins: list(env.CORS_ORIGINS, ["http://localhost:3000","https://buildsuite360.org","https://www.buildsuite360.org"]),
+    corsOrigins: list(env.CORS_ORIGINS, ["http://localhost:3000"]),
     tokenSecret: env.TOKEN_SECRET || "",
     tokenHours: num(env.TOKEN_HOURS, 12),
     allowSignup: bool(env.ALLOW_SIGNUP, true),

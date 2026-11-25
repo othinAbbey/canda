@@ -3,10 +3,17 @@ import { HttpError, ValidationError, notFound } from "../errors.js";
 import { resourcesRepo } from "../repos/resources.js";
 import { tenderWorkRepo } from "../repos/tenderWork.js";
 import { usersRepo } from "../repos/users.js";
+import { categorize, readRequirements } from "../domain/requirements.js";
 
 const OPEN = ["saved", "interested", "bidding", "submitted"];       // stages that still count as "in the pipeline"
 const PRIORITY = ["low", "medium", "high"], STATUS = ["todo", "doing", "done"];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** Where a bid stands, in order. Labels are for screens and the audit trail. */
+export const STAGES = [["not_started", "Not started"], ["documents", "Getting the bid documents"], ["site_visit", "Site visit / pre-bid meeting"],
+  ["preparing", "Preparing documents"], ["pricing", "Pricing the BOQ"], ["review", "Internal review"], ["submitted", "Bid submitted"]];
+const STAGE_KEYS = STAGES.map(([k]) => k), STAGE_NAME = Object.fromEntries(STAGES);
+const REQ_STATUS = ["pending", "done", "na"];
+const today = () => new Date().toISOString().slice(0, 10);
 
 /** Pipeline totals, the list of people tasks can go to, and tender tasks with copies. */
 export function createTenderWork({ db, roles, audit }) {
@@ -14,13 +21,36 @@ export function createTenderWork({ db, roles, audit }) {
   const staff = async (actor) => (await users.list(actor.organization_id)).filter((u) => u.status === "active");   // own company only
   const person = (u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, role_name: roles.nameOf(u.role) });
 
+  /** Adds copies, progress (requirements ticked off) and the latest progress note to each task. */
   async function present(rows, meId) {
-    const copies = await repo.copiesFor(rows.map((r) => r.id));
-    return rows.map((t) => ({
-      ...t, copies: copies.filter((c) => c.task === t.id).map((c) => ({ id: c.user_id, name: c.name, email: c.email })),
-      relation: meId ? (t.assignee === meId ? "assigned" : "copied") : undefined,
-    }));
+    const ids = rows.map((r) => r.id);
+    const [copies, counts, notes] = await Promise.all([repo.copiesFor(ids), repo.requirementCounts(ids), repo.lastUpdates(ids)]);
+    return rows.map((t) => {
+      const n = (st) => Number(counts.find((c) => c.task === t.id && c.status === st)?.n || 0);
+      const done = n("done"), total = done + n("pending");                    // "not applicable" items do not count
+      const last = notes.filter((x) => x.task === t.id).sort((a, b) => String(b.created).localeCompare(String(a.created)))[0];
+      return {
+        ...t, copies: copies.filter((c) => c.task === t.id).map((c) => ({ id: c.user_id, name: c.name, email: c.email })),
+        relation: meId ? (t.assignee === meId ? "assigned" : "copied") : undefined,
+        stage_name: t.stage ? STAGE_NAME[t.stage] : null,
+        requirements: { total, done, na: n("na") },
+        progress: t.status === "done" ? 100 : total ? Math.round((done / total) * 100) : null,
+        overdue: !!(t.due && t.status !== "done" && String(t.due).slice(0, 10) < today()),
+        last_update: last ? { body: last.body, created: last.created, by: last.by_name || last.by_email } : null,
+      };
+    });
   }
+  const one = async (actor, id) => (await present((await repo.tasks({ organizationId: actor.organization_id })).filter((x) => x.id === id)))[0];
+
+  /** Who may see and who may work on a task. Directors and admins (tasks:oversee) see every task in the company. */
+  async function access(actor, id) {
+    const task = await repo.task(id, actor.organization_id); if (!task) throw notFound("task not found");
+    const copied = (await repo.copiesFor([id])).some((c) => c.user_id === actor.id);
+    const edit = task.assignee === actor.id || can(actor, "tenders:assign");
+    if (!edit && !copied && !can(actor, "tasks:oversee")) throw notFound("task not found");
+    return { task, edit };
+  }
+  const mustEdit = (a) => { if (!a.edit) throw new HttpError(403, "only the person the task is assigned to, or someone who assigns tasks, can change its progress"); };
 
   return {
     /** Value of the pipeline per currency. Currencies are never mixed: UGX is shown on its own. */
@@ -81,16 +111,120 @@ export function createTenderWork({ db, roles, audit }) {
       const assigner = can(actor, "tenders:assign");
       if (task.assignee !== actor.id && !assigner) throw new HttpError(403, "only the person it is assigned to, or someone who assigns tasks, can change it");
       const values = {};
-      for (const k of ["status", "notes", "due"]) if (k in body) values[k] = body[k] === "" ? null : body[k];
+      for (const k of ["status", "notes", "due", "stage"]) if (k in body) values[k] = body[k] === "" ? null : body[k];
       for (const k of ["title", "priority"]) if (k in body) { if (!assigner) throw new HttpError(403, "only someone who assigns tasks can change the title or priority"); values[k] = body[k]; }
       if ("status" in values && !STATUS.includes(values.status)) throw new ValidationError(`status must be one of ${STATUS.join(", ")}`);
+      if ("stage" in values && values.stage !== null && !STAGE_KEYS.includes(values.stage)) throw new ValidationError(`stage must be one of ${STAGE_KEYS.join(", ")}`);
       if ("priority" in values && !PRIORITY.includes(values.priority)) throw new ValidationError(`priority must be one of ${PRIORITY.join(", ")}`);
       if (values.due && !DATE.test(String(values.due))) throw new ValidationError("due must be a date (YYYY-MM-DD)");
       if ("title" in values && !String(values.title || "").trim()) throw new ValidationError("the title cannot be empty");
       const row = await repo.updateTask(id, values);
       const changes = {}; for (const k of Object.keys(values)) if (task[k] !== row[k]) changes[k] = [task[k] ?? null, row[k] ?? null];
+      if (changes.stage && row.stage) await repo.insertUpdate({ task: id, body: `Moved to: ${STAGE_NAME[row.stage]}`, stage: row.stage }, actor.id);
       await audit.log(actor, { action: "update", entity: "tender_tasks", id, summary: `${row.title}: ${Object.keys(changes).join(", ") || "no change"}`, changes });
-      return (await present((await repo.tasks({ organizationId: actor.organization_id, tender: row.tender })).filter((x) => x.id === id)))[0];
+      return one(actor, id);
+    },
+
+    stages: () => STAGES.map(([id, name]) => ({ id, name })),
+
+    /** One task with its requirements checklist and progress notes. */
+    async detail(actor, id) {
+      const a = await access(actor, id);
+      const [task, requirements, updates] = await Promise.all([one(actor, id), repo.requirements(id), repo.updates(id)]);
+      return { ...task, can_edit: a.edit, checklist: requirements, updates };
+    },
+
+    /** Every tender task in the company with its progress, and how each person is doing (Company Tasks page). */
+    async company(actor, { assignee, status, stage } = {}) {
+      let rows = await present(await repo.tasks({ organizationId: actor.organization_id, status: status || undefined }));
+      if (assignee) rows = rows.filter((t) => t.assignee === assignee);
+      if (stage) rows = rows.filter((t) => (t.stage || "not_started") === stage);
+      const open = rows.filter((t) => t.status !== "done");
+      const people = new Map();
+      for (const t of rows) {
+        const p = people.get(t.assignee) || { id: t.assignee, name: t.assignee_name || t.assignee_email, total: 0, open: 0, done: 0, overdue: 0, progress_sum: 0, progress_n: 0 };
+        p.total++; if (t.status === "done") p.done++; else p.open++; if (t.overdue) p.overdue++;
+        if (t.status !== "done" && t.progress !== null) { p.progress_sum += t.progress; p.progress_n++; }
+        people.set(t.assignee, p);
+      }
+      const avg = (list) => { const xs = list.filter((t) => t.progress !== null).map((t) => t.progress); return xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null; };
+      const week = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+      return {
+        totals: { tasks: rows.length, open: open.length, done: rows.length - open.length, overdue: open.filter((t) => t.overdue).length,
+          due_this_week: open.filter((t) => t.due && !t.overdue && String(t.due).slice(0, 10) <= week).length, average_progress: avg(open) },
+        people: [...people.values()].map(({ progress_sum, progress_n, ...p }) => ({ ...p, average_progress: progress_n ? Math.round(progress_sum / progress_n) : null }))
+          .sort((a, b) => b.overdue - a.overdue || b.open - a.open || String(a.name).localeCompare(String(b.name))),
+        tasks: rows.sort((a, b) => Number(b.overdue) - Number(a.overdue) || (a.status === "done") - (b.status === "done") || String(a.due || "9999").localeCompare(String(b.due || "9999"))),
+        stages: STAGES.map(([id, name]) => ({ id, name })),
+      };
+    },
+
+    /** Adds requirements to the checklist: [{ text, category? }] or plain strings. `source` says where they came from. */
+    async addRequirements(actor, id, body) {
+      const a = await access(actor, id); mustEdit(a);
+      const source = body.source || "manual";
+      if (!["manual", "reader", "assistant"].includes(source)) throw new ValidationError("source must be manual, reader or assistant");
+      const items = (Array.isArray(body.items) ? body.items : [body]).map((x) => (typeof x === "string" ? { text: x } : x || {}))
+        .map((x) => ({ text: String(x.text || "").replace(/\s+/g, " ").trim(), category: String(x.category || "").trim().slice(0, 60) || null })).filter((x) => x.text);
+      if (!items.length) throw new ValidationError("write the requirement");
+      if (items.length > 100) throw new ValidationError("add at most 100 requirements at a time");
+      if (items.some((x) => x.text.length > 500)) throw new ValidationError("keep each requirement under 500 characters");
+      let position = await repo.nextPosition(id);
+      await db.tx(async (t) => { const w = tenderWorkRepo(t); for (const x of items) await w.insertRequirement({ task: id, position: position++, text: x.text, category: x.category || categorize(x.text), source }, actor.id); });
+      await audit.log(actor, { action: "update", entity: "tender_tasks", id, summary: `${a.task.title}: ${items.length} requirement${items.length === 1 ? "" : "s"} added (${source})` });
+      return this.detail(actor, id);
+    },
+
+    async updateRequirement(actor, reqId, body) {
+      const req = await repo.requirement(reqId, actor.organization_id); if (!req) throw notFound("requirement not found");
+      const a = await access(actor, req.task); mustEdit(a);
+      const values = {};
+      if ("status" in body) {
+        if (!REQ_STATUS.includes(body.status)) throw new ValidationError(`status must be one of ${REQ_STATUS.join(", ")}`);
+        values.status = body.status; values.done_by = body.status === "done" ? actor.id : null; values.done_at = body.status === "done" ? new Date().toISOString() : null;
+      }
+      if ("note" in body) values.note = String(body.note || "").trim().slice(0, 1000) || null;
+      if ("text" in body) { const t = String(body.text || "").trim(); if (!t || t.length > 500) throw new ValidationError("the requirement needs text (up to 500 characters)"); values.text = t; }
+      if ("category" in body) values.category = String(body.category || "").trim().slice(0, 60) || null;
+      if (!Object.keys(values).length) throw new ValidationError("nothing to change");
+      await repo.updateRequirement(reqId, values);
+      if (values.status && values.status !== req.status) await audit.log(actor, { action: "update", entity: "tender_tasks", id: req.task, summary: `${a.task.title}: "${req.text.slice(0, 80)}" ${values.status === "done" ? "done" : values.status === "na" ? "not applicable" : "reopened"}` });
+      return this.detail(actor, req.task);
+    },
+
+    async removeRequirement(actor, reqId) {
+      const req = await repo.requirement(reqId, actor.organization_id); if (!req) throw notFound("requirement not found");
+      mustEdit(await access(actor, req.task));
+      await repo.removeRequirement(reqId);
+      return this.detail(actor, req.task);
+    },
+
+    /** A progress note, optionally moving the bid to another stage. */
+    async postUpdate(actor, id, body) {
+      const a = await access(actor, id); mustEdit(a);
+      const text = String(body.body || "").trim(), stage = body.stage || null;
+      if (!text && !stage) throw new ValidationError("write what has happened");
+      if (text.length > 2000) throw new ValidationError("keep the note under 2000 characters");
+      if (stage && !STAGE_KEYS.includes(stage)) throw new ValidationError(`stage must be one of ${STAGE_KEYS.join(", ")}`);
+      const moved = stage && stage !== a.task.stage;
+      await db.tx(async (t) => {
+        const w = tenderWorkRepo(t);
+        if (moved) await w.updateTask(id, { stage, ...(a.task.status === "todo" ? { status: "doing" } : {}) });
+        await w.insertUpdate({ task: id, body: [moved ? `Moved to: ${STAGE_NAME[stage]}.` : "", text].filter(Boolean).join(" "), stage: moved ? stage : null }, actor.id);
+      });
+      await audit.log(actor, { action: "update", entity: "tender_tasks", id, summary: `${a.task.title}: progress note${moved ? ` (${STAGE_NAME[stage]})` : ""}` });
+      return this.detail(actor, id);
+    },
+
+    /** Lists the requirements found in pasted bid-document text. Nothing is saved: the person picks which to add. */
+    async readRequirements(actor, id, body) {
+      mustEdit(await access(actor, id));
+      const text = String(body.text || "");
+      if (text.trim().length < 20) throw new ValidationError("paste the requirements section of the bid document (at least a few lines)");
+      if (text.length > 200000) throw new ValidationError("the text is too long: paste the instructions to bidders and the requirements sections only");
+      const have = new Set((await repo.requirements(id)).map((r) => r.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
+      const items = readRequirements(text).map((x) => ({ ...x, already: have.has(x.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()) }));
+      return { reader: "built-in", items };
     },
 
     async remove(actor, id) {

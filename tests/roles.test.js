@@ -11,7 +11,7 @@ describe("roles and access", () => {
 
   it("starts with the built-in roles, shown with friendly names; only an admin can see or manage them", async () => {
     const list = await roles();
-    assert.deepEqual(list.map((r) => r.code).sort(), ["admin", "general_pm", "manager", "user", "viewer"]);
+    assert.deepEqual(list.map((r) => r.code).sort(), ["admin", "director", "general_pm", "manager", "user", "viewer"]);
     assert.equal(list.find((r) => r.code === "manager").name, "Project Manager"); assert.equal(list.find((r) => r.code === "general_pm").name, "General Project Manager");
     assert.deepEqual(list.find((r) => r.code === "admin").permissions, ["*"]); assert.ok(list.every((r) => r.builtin));
     assert.equal(list.find((r) => r.code === "manager").users, 1);

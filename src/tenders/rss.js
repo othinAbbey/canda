@@ -48,11 +48,19 @@ export function parseFeed(xml) {
   }).filter((x) => x.title || x.link);
 }
 
-/** Fetch and parse a feed, with a timeout and a readable error. */
-export async function fetchFeed(url, { fetchImpl = fetch, name = "The feed" } = {}) {
+/** How the app introduces itself to feed servers: honestly, with a page that says who we are. */
+export const FEED_USER_AGENT = "Buildsuite360/1.0 (tender feed reader; +https://buildsuite360.org)";
+const FEED_HEADERS = { accept: "application/rss+xml, application/rdf+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5", "accept-language": "en", "user-agent": FEED_USER_AGENT };
+
+/** Fetch and parse a feed, with a timeout and a readable error. A refusal or server error is tried once more after a short pause. */
+export async function fetchFeed(url, { fetchImpl = fetch, name = "The feed", retryDelay = 1500 } = {}) {
   let res;
-  try { res = await fetchImpl(url, { headers: { accept: "application/rss+xml, application/rdf+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5", "user-agent": "ProjectAssistant/1.0 (tender feed reader)" }, signal: AbortSignal.timeout(20_000) }); }
-  catch { throw new Error(`${name} did not answer.`); }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { res = await fetchImpl(url, { headers: FEED_HEADERS, signal: AbortSignal.timeout(20_000) }); }
+    catch { if (attempt) throw new Error(`${name} did not answer.`); res = null; }
+    if (res && (res.ok || ![403, 429, 500, 502, 503, 504].includes(res.status))) break;
+    if (!attempt && retryDelay) await new Promise((r) => setTimeout(r, retryDelay));
+  }
   if (!res.ok) throw new Error(`${name} returned an error (${res.status}).`);
   // Decode with the charset the feed declares (UNDP's feeds are ISO-8859-1), not blindly as UTF-8.
   const bytes = new Uint8Array(await res.arrayBuffer());
@@ -64,12 +72,19 @@ export async function fetchFeed(url, { fetchImpl = fetch, name = "The feed" } = 
   return parseFeed(body);
 }
 
-/** Keeps a feed for `ttl` ms, so every search does not download it again. */
-export function cachedFeed(url, { fetchImpl = fetch, name, ttl = 10 * 60_000 } = {}) {
+/**
+ * Keeps a feed for `ttl` ms, so every search does not download it again. If a fresh download fails, the last good copy
+ * is used for up to `staleFor` ms (a feed's notices stay valid for days), so a short outage or block doesn't empty results.
+ */
+export function cachedFeed(url, { fetchImpl = fetch, name, ttl = 10 * 60_000, staleFor = 24 * 3600_000, retryDelay } = {}) {
   let at = 0, items = null, pending = null;
-  return async () => {
+  const get = async () => {
     if (items && Date.now() - at < ttl) return items;
-    pending ||= fetchFeed(url, { fetchImpl, name }).then((x) => { items = x; at = Date.now(); return x; }).finally(() => { pending = null; });
+    pending ||= fetchFeed(url, { fetchImpl, name, retryDelay })
+      .then((x) => { items = x; at = Date.now(); get.lastError = null; return x; })
+      .catch((e) => { get.lastError = e.message; if (items && Date.now() - at < staleFor) return items; throw e; })
+      .finally(() => { pending = null; });
     return pending;
   };
+  return get;
 }

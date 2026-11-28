@@ -2,14 +2,16 @@ import { HttpError, ValidationError } from "../errors.js";
 import { createWorldBankProvider } from "../tenders/worldbank.js";
 import { createAfdbProvider } from "../tenders/afdb.js";
 import { createUndpProvider } from "../tenders/undp.js";
+import { createEgpProvider } from "../tenders/egp.js";
 
-/** The sources this server searches: World Bank always; AfDB and UNDP unless switched off. */
+/** The sources this server searches: World Bank always; AfDB, UNDP and Uganda's eGP portal unless switched off. */
 export function defaultTenderProviders(config = {}) {
   const f = config.tenderFeeds || {};
   return [
     createWorldBankProvider(),
     ...(f.afdb === false ? [] : [createAfdbProvider(f.afdbUrl ? { url: f.afdbUrl } : {})]),
     ...(f.undp === false ? [] : [createUndpProvider(f.undpBase ? { base: f.undpBase } : {})]),
+    ...(f.egp === false ? [] : [createEgpProvider(f.egpBase ? { base: f.egpBase } : {})]),
   ];
 }
 
@@ -43,6 +45,14 @@ export function createTenders({ db, providers = defaultTenderProviders() }) {
   }
 
   return {
+    /** The newest notices from every source for one country, not tied to any company (the daily social posts use this). */
+    async latest({ q = "", country = "" } = {}) {
+      const results = await Promise.all(providers.map((p) => fetchPage(p, q, country, 200, 0).then((r) => ({ p, r }), (e) => ({ p, e }))));
+      const items = results.filter((x) => x.r).flatMap((x) => x.r.items.map((t) => ({ ...t, source_name: x.p.name })));
+      items.sort((a, b) => String(b.published || "").localeCompare(String(a.published || "")));
+      return { items, failed: results.filter((x) => x.e).map((x) => ({ source: x.p.id, name: x.p.name, error: x.e.message })) };
+    },
+
     sources: () => [
       ...(providers.length > 1 ? [{ id: ALL, name: "All sources", note: `Searches ${providers.map((p) => p.name).join(", ")} together, newest first.` }] : []),
       ...providers.map(({ id, name, note }) => ({ id, name, note })),

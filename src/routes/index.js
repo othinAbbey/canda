@@ -15,10 +15,11 @@ import scheduleRoutes from "./schedule.js";
 import sourcingRoutes from "./sourcing.js";
 import summaryRoutes from "./summary.js";
 import tenderRoutes from "./tenders.js";
+import socialRoutes from "./social.js";
 
 /** One file per area. Routes stay thin: read the request, call one service method, return the result. */
 export function registerRoutes(router, svc, ctx) {
   router.get("/api/health", { public: true }, () => ({ ok: true, setup_required: false }));
   // Order matters: tenderRoutes must come before resourceRoutes so "/api/tenders/search" is not read as a tender id.
-  for (const register of [accountRoutes, roleRoutes, tenderRoutes, scheduleRoutes, formRoutes, resourceRoutes, summaryRoutes, sourcingRoutes, proposalRoutes, fileRoutes, boqRoutes, billingRoutes, auditRoutes, contactRoutes, marketRoutes, assistantRoutes, chatRoutes]) register(router, svc, ctx);
+  for (const register of [accountRoutes, roleRoutes, tenderRoutes, scheduleRoutes, formRoutes, resourceRoutes, summaryRoutes, sourcingRoutes, proposalRoutes, fileRoutes, boqRoutes, billingRoutes, auditRoutes, contactRoutes, marketRoutes, assistantRoutes, chatRoutes, socialRoutes]) register(router, svc, ctx);
 }

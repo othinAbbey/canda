@@ -30,6 +30,7 @@ import { createBids } from "./bids.js";
 import { createAiClient } from "./aiClient.js";
 import { createAssistant } from "./assistant.js";
 import { createSiteChat } from "./siteChat.js";
+import { createSocial } from "./social.js";
 import { createTenders, defaultTenderProviders } from "./tenders.js";
 import { createLimiter } from "../http/rateLimit.js";
 
@@ -60,6 +61,7 @@ export function createServices({ db, config, secret, boqClient = createBoqClient
     contact: createContact({ messages: messagesRepo(db), organizations, audit, limiter }),
   };
   svc.assistant = createAssistant({ db, ai, services: svc, config });
+  svc.social = createSocial({ db, tenders: svc.tenders, ai, audit, config });
   svc.siteChat = createSiteChat({ db, ai, resources, assistant: svc.assistant, audit, config });
   return svc;
 }

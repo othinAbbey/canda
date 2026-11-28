@@ -15,6 +15,7 @@ export async function createApp({ db, config, boqClient, tenderProviders, aiClie
   const svc = services || createServices({ db, config, secret, boqClient, tenderProviders, aiClient, fetcher });
   await svc.roles.ensureBuiltIns();
   await svc.bids?.resume();
+  svc.social?.start();
   const router = new Router();
   registerRoutes(router, svc, { config, db });
 
@@ -60,5 +61,5 @@ export async function createApp({ db, config, boqClient, tenderProviders, aiClie
       json(req, res, 500, { error: "server error" });
     }
   });
-  return { server, services: svc, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(() => r()); }) };
+  return { server, services: svc, close: () => new Promise((r) => { svc.social?.stop(); server.closeAllConnections?.(); server.close(() => r()); }) };
 }

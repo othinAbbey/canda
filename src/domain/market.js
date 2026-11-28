@@ -50,6 +50,8 @@ export function cleanListing(body = {}, { partial = false } = {}) {
   if (has("contact_phone")) out.contact_phone = text(body.contact_phone, "Phone", 40);
   if (has("contact_email")) out.contact_email = email(body.contact_email);
   if (has("status")) out.status = pick(body.status, LISTING_STATUS, "Status", "open");
+  // May Buildsuite360 feature this listing on its social media? Only an explicit yes counts.
+  if (has("feature_social")) out.feature_social = body.feature_social === true || body.feature_social === "true" || body.feature_social === 1;
   if (out.start_date && out.end_date && out.end_date < out.start_date) throw new ValidationError("the end date is before the start date");
   return out;
 }

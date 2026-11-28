@@ -165,3 +165,31 @@ describe("subscription placeholders", () => {
     await off.close();
   });
 });
+
+describe("the BOQ job list follows running jobs", () => {
+  let t, fake, jane;
+  before(async () => { fake = fakeBoq(); t = await startTestApp({ boq: fake }); jane = await t.account("jane@y.com"); });
+  after(() => t.close());
+
+  it("brings unfinished jobs up to date when the list is fetched (the page only polls the list)", async () => {
+    const r = await t.call("POST", "/api/boq/jobs?name=list.pdf", null, jane, PDF);
+    assert.equal(r.body.status, "reading");
+    assert.equal((await t.call("GET", "/api/boq/jobs", null, jane)).body[0].status, "reading");   // first poll: still reading
+    const done = (await t.call("GET", "/api/boq/jobs", null, jane)).body[0];                       // second poll: finished
+    assert.equal(done.status, "done"); assert.equal(done.total, 1234);
+  });
+  it("gives up on a job that never reached the BOQ service, so it can be retried", async () => {
+    const r = await t.call("POST", "/api/boq/jobs?name=cut.pdf", null, jane, PDF);
+    const old = new Date(Date.now() - 30 * 60_000).toISOString();
+    await t.db.query("UPDATE boq_jobs SET remote_job_id = NULL, status = 'queued', stage = 'queued', updated = $1 WHERE id = $2", [old, r.body.id]);
+    const j = (await t.call("GET", "/api/boq/jobs", null, jane)).body.find((x) => x.id === r.body.id);
+    assert.equal(j.status, "failed"); assert.match(j.error, /never reached the BOQ service/);
+  });
+  it("a BOQ service that is down doesn't break the list", async () => {
+    await t.call("POST", "/api/boq/jobs?name=down.pdf", null, jane, PDF);
+    fake.state.down = true;
+    const r = await t.call("GET", "/api/boq/jobs", null, jane);
+    assert.equal(r.status, 200);
+    fake.state.down = false;
+  });
+});

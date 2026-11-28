@@ -1,3 +1,4 @@
+import { isTeam } from "../auth/team.js";
 import crypto from "node:crypto";
 import { HttpError, ValidationError, notFound } from "../errors.js";
 import { newId, now } from "../ids.js";
@@ -26,7 +27,8 @@ function checkCredentials(email, password) {
  * company's admin can never see or touch another company's accounts -- see sameOrgOrNotFound below.
  */
 export function createAccounts({ db, users, roles, audit, config, secret, limiter }) {
-  const pub = (u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, role_name: roles.nameOf(u.role), status: u.status, organization_id: u.organization_id, permissions: roles.permissionsOf(u.role) });
+  const pub = (u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, role_name: roles.nameOf(u.role), status: u.status, organization_id: u.organization_id, permissions: roles.permissionsOf(u.role),
+    platform_team: isTeam(u, config) });
   const checkRole = (role) => { if (!roles.exists(role)) throw new ValidationError(`role must be one of: ${roles.codes().join(", ")}`); };
   const session = (u) => ({ token: signToken({ uid: u.id, tv: u.token_version }, secret, config.tokenHours), user: pub(u) });
   const throttle = (ip) => { if (limiter.blocked(`auth:${ip}`)) throw new HttpError(429, "too many attempts, try again in a few minutes"); };

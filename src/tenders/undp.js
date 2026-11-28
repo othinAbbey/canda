@@ -4,7 +4,8 @@ import { matches, toDate } from "./feedTools.js";
 /**
  * UNDP procurement notices from UNDP's official RSS feeds (RSS 1.0, updated hourly; list at
  * https://procurement-notices.undp.org/proc_notices_rss_feed.cfm). Each country office has its own feed, named by UNDP's office
- * code (Uganda = UGA, Tanzania = URT, DR Congo = ZAI ...); "All countries" reads the Africa feed (RAF).
+ * code (Uganda = UGA, Tanzania = URT, DR Congo = ZAI ...); "All countries" reads the Africa feed (RAF) together with UNDP Uganda's
+ * own feed, so Uganda's country-office notices are always included.
  * Titles look like "UNDP-UGA-00617 - Construction of Equipment Storage Structures - UNDP - UGANDA";
  * the description holds "Application Deadline: 09-Dec-26".
  */
@@ -14,6 +15,7 @@ export const UNDP_OFFICE = {
   "Democratic Republic of Congo": "ZAI", "Ethiopia": "ETH", "Burundi": "BDI",
 };
 const AFRICA = "RAF";
+const HOME = "UGA";        // UNDP Uganda: read on every "All countries" search too
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
 /** "09-Dec-26" -> "2026-12-09" (UNDP's short dates); anything else via the general date reader. */
@@ -35,7 +37,8 @@ export function normalizeUndp(item) {
   return {
     source: "undp", external_id: item.id || item.link,
     title,
-    buyer: "UNDP",
+    // the country office that runs the procurement, e.g. "UNDP Uganda"
+    buyer: hasTail ? `UNDP ${titleCase(parts[parts.length - 1])}` : "UNDP",
     country: hasTail ? titleCase(parts[parts.length - 1]) : null,
     type: null, method: null,
     published: toDate(item.date), deadline: deadline ? undpDate(deadline[1]) : null,
@@ -49,13 +52,15 @@ export function createUndpProvider({ fetchImpl = fetch, base = UNDP_FEEDS } = {}
   const feed = (code) => { if (!feeds.has(code)) feeds.set(code, cachedFeed(`${base}${code}.xml`, { fetchImpl, name: "The UNDP feed" })); return feeds.get(code)(); };
   return {
     id: "undp",
-    name: "UNDP procurement notices",
-    note: "UNDP country-office notices from UNDP's official feeds (Africa-wide when no country is chosen). Bids go through UNDP's supplier portal (Quantum) after registering.",
+    name: "UNDP (incl. UNDP Uganda)",
+    note: "UNDP country-office notices from UNDP's official feeds, including UNDP Uganda (UNDP-UGA). Africa-wide plus Uganda when no country is chosen. Bids go through UNDP's supplier portal (Quantum) after registering.",
     async search({ q = "", country = "", rows = 50, offset = 0 } = {}) {
-      const code = country ? UNDP_OFFICE[country] : AFRICA;
-      if (!code) return { total: 0, items: [] };                    // a country UNDP has no feed code for here
+      const codes = country ? [UNDP_OFFICE[country]].filter(Boolean) : [HOME, AFRICA];
+      if (!codes.length) return { total: 0, items: [] };            // a country UNDP has no feed code for here
+      const lists = await Promise.allSettled(codes.map((c) => feed(c)));
+      if (lists.every((l) => l.status === "rejected")) throw lists[0].reason;
       const seen = new Set(), all = [];
-      for (const it of await feed(code)) {
+      for (const it of lists.flatMap((l) => (l.status === "fulfilled" ? l.value : []))) {
         const n = normalizeUndp(it);
         if (!n.external_id || seen.has(n.external_id) || !matches(`${it.title} ${it.description}`, q)) continue;
         seen.add(n.external_id);

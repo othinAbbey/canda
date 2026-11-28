@@ -7,6 +7,8 @@ import { BoqError } from "./boqClient.js";
 /** A BoqError that got this far means the service answered but refused: report it as 502. */
 const asHttp = (p) => p.catch((e) => { throw e instanceof BoqError ? new HttpError(502, e.message) : e; });
 const ACTIVE = ["queued", "reading", "building"];
+const STUCK_MS = 10 * 60_000;           // a job that never reached the BOQ service is given up after this long
+const SYNC_IN_LIST = 10;                // unfinished jobs brought up to date each time the list is fetched
 const present = (j) => j && {
   id: j.id, user_id: j.user_id, filename: j.filename, status: j.status, stage: j.stage, error: j.error, result: j.result, usage: j.usage,
   cost_usd: j.cost_usd, cached: !!j.cached, created_at: j.created, updated_at: j.updated, has_xlsx: !!j.has_xlsx,
@@ -34,7 +36,13 @@ export function createBoq({ boq, client: rawClient, billing, audit, config }) {
 
   /** Bring our copy up to date from the BOQ service, and keep the finished Excel file. */
   async function sync(job) {
-    if (!ACTIVE.includes(job.status) || !job.remote_job_id) return job;
+    if (!ACTIVE.includes(job.status)) return job;
+    if (!job.remote_job_id) {
+      // never handed to the BOQ service (the upload was cut off part-way): don't leave it waiting for ever
+      const age = Date.now() - Date.parse(job.updated || job.created || 0);
+      if (age > STUCK_MS) return boq.update(job.id, { status: "failed", stage: "failed", error: "This job never reached the BOQ service. Use Retry to send the drawing again." }, now());
+      return job;
+    }
     let remote;
     try { remote = await client.job(job.remote_job_id); }
     catch (e) {
@@ -69,7 +77,14 @@ export function createBoq({ boq, client: rawClient, billing, audit, config }) {
     async saveRates(actor, rows) { const r = await asHttp(client.saveRates(rows)); await audit.log(actor, { action: "update", entity: "boq_rates", summary: `saved ${r.saved ?? rows.length} rate rows` }); return r; },
 
     async list(actor, { all = false } = {}) {
-      const rows = await boq.list(all && can(actor, "boq:all") ? null : actor.id);
+      let rows = await boq.list(all && can(actor, "boq:all") ? null : actor.id);
+      // The BOQ page polls this list while jobs run, so ask the BOQ service about unfinished jobs here too
+      // (before, only opening a single job did, and the list showed "Waiting to start" for ever).
+      const active = rows.filter((j) => ACTIVE.includes(j.status)).slice(0, SYNC_IN_LIST);
+      if (active.length) {
+        const fresh = new Map((await Promise.all(active.map((j) => sync(j).catch(() => j)))).map((j) => [j.id, j]));
+        rows = rows.map((j) => fresh.get(j.id) || j);
+      }
       return rows.map((j) => ({ ...present(j), result: null, usage: null }));     // lists stay light: open a job for its full result
     },
     async get(actor, id) { return present(await sync(await mine(actor, id))); },
